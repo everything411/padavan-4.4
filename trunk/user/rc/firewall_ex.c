@@ -1728,7 +1728,7 @@ ip6t_nat_rules(char *man_if)
 	fprintf(fp, ":%s %s [0:0]\n", "INPUT", "ACCEPT");
 	fprintf(fp, ":%s %s [0:0]\n", "OUTPUT", "ACCEPT");
 	fprintf(fp, ":%s %s [0:0]\n", "POSTROUTING", "ACCEPT");
-	fprintf(fp, "-A POSTROUTING -s fc00:101:101::1/64 -j FULLCONENAT\n");
+	fprintf(fp, "-A POSTROUTING -s cc00:101:101::1/64 -j FULLCONENAT\n");
 	fprintf(fp, "COMMIT\n\n");
 	fclose(fp);
 		doSystem("ip6tables-restore %s", ipt_file);
