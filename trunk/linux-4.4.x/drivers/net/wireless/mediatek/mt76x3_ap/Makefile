@@ -926,7 +926,7 @@ endif
 #  CFLAGS
 ##################
 EXTRA_CFLAGS += -DAGGREGATION_SUPPORT -DPIGGYBACK_SUPPORT -DWMM_SUPPORT  -DLINUX \
-               -Wall -Wstrict-prototypes -Wno-trigraphs -Wframe-larger-than=4096 -Werror
+               -Wall -Wstrict-prototypes -Wno-trigraphs -Wframe-larger-than=4096
 #-DDBG_DIAGNOSE -DDBG_RX_MCS -DDBG_TX_MCS
 
 EXTRA_CFLAGS += -DCONFIG_AP_SUPPORT -DSCAN_SUPPORT -DAP_SCAN_SUPPORT
@@ -965,8 +965,6 @@ endif
 
 ifeq ($(CONFIG_MT7603E_MEMORY_OPTIMIZATION),y)
 EXTRA_CFLAGS += -DMEMORY_OPTIMIZATION
-else
-EXTRA_CFLAGS += -DDBG
 endif
 
 ifeq ($(CONFIG_MT7603E_RTMP_INTERNAL_TX_ALC),y)

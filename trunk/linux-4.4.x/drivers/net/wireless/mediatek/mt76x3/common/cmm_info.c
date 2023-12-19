@@ -1647,6 +1647,26 @@ INT Set_WscVendorPinCode_Proc(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
 #endif /* WSC_INCLUDED */
 
 
+INT Set_Ap_Probe_Rsp_Times(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
+{
+	POS_COOKIE	pObj = (POS_COOKIE) pAd->OS_Cookie;
+	UCHAR		apidx = pObj->ioctl_if;
+	INT input;
+
+	input = simple_strtol(arg, 0, 10);
+
+	if ((input >= 1) && (input <= 10))
+		pAd->ApCfg.MBSSID[apidx].ProbeRspTimes = input;
+	else{
+		DBGPRINT(RT_DEBUG_ERROR, ("AP[%d]->ProbeRspTimes: Out of Range\n", apidx));
+		return FALSE;
+		}
+	DBGPRINT(RT_DEBUG_TRACE, ("AP[%d]->ProbeRspTimes: %d\n", apidx, pAd->ApCfg.MBSSID[apidx].ProbeRspTimes));
+
+	return TRUE;
+}
+
+
 #ifdef DBG
 INT rx_temp_dbg = 0;
 
@@ -1673,24 +1693,6 @@ INT Set_Debug_Proc(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
 	return TRUE;
 }
 
-INT Set_Ap_Probe_Rsp_Times(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
-{
-	POS_COOKIE	pObj = (POS_COOKIE) pAd->OS_Cookie;
-	UCHAR		apidx = pObj->ioctl_if;
-	INT input;
-
-	input = simple_strtol(arg, 0, 10);
-
-	if ((input >= 1) && (input <= 10))
-		pAd->ApCfg.MBSSID[apidx].ProbeRspTimes = input;
-	else{
-		DBGPRINT(RT_DEBUG_ERROR, ("AP[%d]->ProbeRspTimes: Out of Range\n", apidx));
-		return FALSE;
-		}
-	DBGPRINT(RT_DEBUG_TRACE, ("AP[%d]->ProbeRspTimes: %d\n", apidx, pAd->ApCfg.MBSSID[apidx].ProbeRspTimes));
-
-	return TRUE;
-}
 
 /* 
     ==========================================================================
