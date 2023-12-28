@@ -31,6 +31,7 @@
 
 #include "xhci.h"
 #include "xhci-mtk.h"
+#include "xhci-mtk-test.h" /*Add for XHCI U2 HQA test*/
 
 /* ip_pw_ctrl0 register */
 #define CTRL0_IP_SW_RST	BIT(0)
@@ -508,6 +509,10 @@ static void xhci_mtk_quirks(struct device *dev, struct xhci_hcd *xhci)
 	if (mtk->lpm_support)
 		xhci->quirks |= XHCI_LPM_SUPPORT;
 
+#ifdef CONFIG_SOC_MT7621
+	xhci->quirks |= XHCI_MISSING_CAS;
+#endif
+
 	/*
 	*Disable nump and enable retry behavior
 	*/
@@ -726,6 +731,9 @@ static int xhci_mtk_probe(struct platform_device *pdev)
 	if (ret)
 		goto dealloc_usb2_hcd;
 
+	/*Add for XHCI U2 HQA test*/
+	mu3h_hqa_create_attr(dev);
+
 	return 0;
 
 dealloc_usb2_hcd:
@@ -762,6 +770,9 @@ static int xhci_mtk_remove(struct platform_device *dev)
 	struct xhci_hcd_mtk *mtk = platform_get_drvdata(dev);
 	struct usb_hcd	*hcd = mtk->hcd;
 	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
+
+	/*Add for XHCI U2 HQA test*/
+	mu3h_hqa_remove_attr(&dev->dev);
 
 	usb_remove_hcd(xhci->shared_hcd);
 	xhci_mtk_phy_power_off(mtk);

@@ -83,3 +83,4 @@ obj-y				+= nat/foe_hook/
 endif
 obj-$(CONFIG_RA_HW_NAT)		+= nat/hw_nat/
 obj-$(CONFIG_SHORTCUT_FE)	+= shortcut-fe/
+obj-$(PGB_QUICK_PATH)		+= swrt_fastpath/

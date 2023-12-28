@@ -47,6 +47,11 @@ config BRIDGE_IGMP_SNOOPING
 
 	  If unsure, say Y.
 
+config BRIDGE_OOP
+	tristate  'broop'
+	depends on BRIDGE
+	default n
+
 config BRIDGE_VLAN_FILTERING
 	bool "VLAN filtering"
 	depends on BRIDGE

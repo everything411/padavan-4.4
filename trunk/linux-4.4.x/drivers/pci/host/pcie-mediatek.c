@@ -1011,7 +1011,7 @@ err_axi_clk:
 err_aux_clk:
 	clk_disable_unprepare(port->ahb_ck);
 err_ahb_clk:
-	clk_disable_unprepare(port->sys_ck);
+//	clk_disable_unprepare(port->sys_ck);
 err_sys_clk:
 	mtk_pcie_port_free(port);
 }

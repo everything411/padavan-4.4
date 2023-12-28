@@ -605,6 +605,7 @@ unsigned int kstat_irqs_cpu(unsigned int irq, int cpu)
 	return desc && desc->kstat_irqs ?
 			*per_cpu_ptr(desc->kstat_irqs, cpu) : 0;
 }
+EXPORT_SYMBOL(kstat_irqs_cpu);
 
 /**
  * kstat_irqs - Get the statistics for an interrupt

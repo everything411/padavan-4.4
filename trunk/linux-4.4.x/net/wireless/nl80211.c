@@ -432,6 +432,9 @@ static const struct nla_policy nl80211_policy[NUM_NL80211_ATTR] = {
 	[NL80211_ATTR_NETNS_FD] = { .type = NLA_U32 },
 	[NL80211_ATTR_SCHED_SCAN_DELAY] = { .type = NLA_U32 },
 	[NL80211_ATTR_REG_INDOOR] = { .type = NLA_FLAG },
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+	[NL80211_ATTR_EXTERNAL_AUTH_SUPPORT] = { .type = NLA_FLAG },
+#endif
 };
 
 /* policy for the key attributes */
@@ -696,7 +699,11 @@ struct key_parse {
 	struct key_params p;
 	int idx;
 	int type;
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+	bool def, defmgmt, defbeacon;
+else
 	bool def, defmgmt;
+#endif /* CONFIG_BCM_KF_CFG80211_BACKPORT */
 	bool def_uni, def_multi;
 };
 
@@ -710,13 +717,21 @@ static int nl80211_parse_key_new(struct nlattr *key, struct key_parse *k)
 
 	k->def = !!tb[NL80211_KEY_DEFAULT];
 	k->defmgmt = !!tb[NL80211_KEY_DEFAULT_MGMT];
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+	k->defbeacon = !!tb[NL80211_KEY_DEFAULT_BEACON];
+#endif /* CONFIG_BCM_KF_CFG80211_BACKPORT */
 
 	if (k->def) {
 		k->def_uni = true;
 		k->def_multi = true;
 	}
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+	if (k->defmgmt || k->defbeacon)
+		k->def_multi = true;
+#else
 	if (k->defmgmt)
 		k->def_multi = true;
+#endif /* CONFIG_BCM_KF_CFG80211_BACKPORT */
 
 	if (tb[NL80211_KEY_IDX])
 		k->idx = nla_get_u8(tb[NL80211_KEY_IDX]);
@@ -821,6 +836,16 @@ static int nl80211_parse_key(struct genl_info *info, struct key_parse *k)
 	if (err)
 		return err;
 
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+	if ((k->def ? 1 : 0) + (k->defmgmt ? 1 : 0) +
+	    (k->defbeacon ? 1 : 0) > 1)
+		return -EINVAL;
+
+	if (k->defmgmt || k->defbeacon) {
+		if (k->def_uni || !k->def_multi)
+			return -EINVAL;
+	}
+#else
 	if (k->def && k->defmgmt)
 		return -EINVAL;
 
@@ -828,16 +853,26 @@ static int nl80211_parse_key(struct genl_info *info, struct key_parse *k)
 		if (k->def_uni || !k->def_multi)
 			return -EINVAL;
 	}
+#endif /* CONFIG_BCM_KF_CFG80211_BACKPORT */
 
 	if (k->idx != -1) {
 		if (k->defmgmt) {
 			if (k->idx < 4 || k->idx > 5)
 				return -EINVAL;
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+		} else if (k->defbeacon) {
+			if (k->idx < 6 || k->idx > 7)
+				return -EINVAL;
+#endif /* CONFIG_BCM_KF_CFG80211_BACKPORT */
 		} else if (k->def) {
 			if (k->idx < 0 || k->idx > 3)
 				return -EINVAL;
 		} else {
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+			if (k->idx < 0 || k->idx > 7)
+#else
 			if (k->idx < 0 || k->idx > 5)
+#endif /* CONFIG_BCM_KF_CFG80211_BACKPORT */
 				return -EINVAL;
 		}
 	}
@@ -2981,7 +3016,11 @@ static int nl80211_set_key(struct sk_buff *skb, struct genl_info *info)
 		return -EINVAL;
 
 	/* only support setting default key */
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+	if (!key.def && !key.defmgmt && !key.defbeacon)
+#else
 	if (!key.def && !key.defmgmt)
+#endif /* CONFIG_BCM_KF_CFG80211_BACKPORT */
 		return -EINVAL;
 
 	wdev_lock(dev->ieee80211_ptr);
@@ -3328,6 +3367,12 @@ static bool nl80211_valid_auth_type(struct cfg80211_registered_device *rdev,
 			return false;
 		return true;
 	case NL80211_CMD_CONNECT:
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+		if (!(rdev->wiphy.features & NL80211_FEATURE_SAE) &&
+		    auth_type == NL80211_AUTHTYPE_SAE)
+			return false;
+		return true;
+#endif
 	case NL80211_CMD_START_AP:
 		/* SAE not supported yet */
 		if (auth_type == NL80211_AUTHTYPE_SAE)
@@ -6543,6 +6588,12 @@ static int nl80211_start_radar_detection(struct sk_buff *skb,
 	if (!cfg80211_chandef_dfs_usable(wdev->wiphy, &chandef))
 		return -EINVAL;
 
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+	/* CAC start is offloaded to HW and can't be started manually */
+	if (wiphy_ext_feature_isset(wdev->wiphy, NL80211_EXT_FEATURE_DFS_OFFLOAD))
+		return -EOPNOTSUPP;
+#endif /* CONFIG_BCM_KF_CFG80211_BACKPORT */
+
 	if (!rdev->ops->start_radar_detection)
 		return -EOPNOTSUPP;
 
@@ -7994,6 +8045,16 @@ static int nl80211_connect(struct sk_buff *skb, struct genl_info *info)
 		}
 		connect.flags |= ASSOC_REQ_USE_RRM;
 	}
+
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+	if (nla_get_flag(info->attrs[NL80211_ATTR_EXTERNAL_AUTH_SUPPORT])) {
+		if (!info->attrs[NL80211_ATTR_SOCKET_OWNER]) {
+			kzfree(connkeys);
+			return -EINVAL;
+		}
+		connect.flags |= CONNECT_REQ_EXTERNAL_AUTH_SUPPORT;
+	}
+#endif /* CONFIG_BCM_KF_CFG80211_BACKPORT */
 
 	wdev_lock(dev->ieee80211_ptr);
 	err = cfg80211_connect(rdev, dev, &connect, connkeys, NULL);
@@ -10645,6 +10706,43 @@ static int nl80211_tdls_cancel_channel_switch(struct sk_buff *skb,
 	return 0;
 }
 
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+static int nl80211_external_auth(struct sk_buff *skb, struct genl_info *info)
+{
+	struct cfg80211_registered_device *rdev = info->user_ptr[0];
+	struct net_device *dev = info->user_ptr[1];
+	struct cfg80211_external_auth_params params;
+
+	if (!rdev->ops->external_auth)
+		return -EOPNOTSUPP;
+
+	if (!info->attrs[NL80211_ATTR_SSID])
+		return -EINVAL;
+
+	if (!info->attrs[NL80211_ATTR_BSSID])
+		return -EINVAL;
+
+	if (!info->attrs[NL80211_ATTR_STATUS_CODE])
+		return -EINVAL;
+
+	memset(&params, 0, sizeof(params));
+
+	params.ssid.ssid_len = nla_len(info->attrs[NL80211_ATTR_SSID]);
+	if (params.ssid.ssid_len == 0 ||
+	    params.ssid.ssid_len > IEEE80211_MAX_SSID_LEN)
+		return -EINVAL;
+	memcpy(params.ssid.ssid, nla_data(info->attrs[NL80211_ATTR_SSID]),
+	       params.ssid.ssid_len);
+
+	memcpy(params.bssid, nla_data(info->attrs[NL80211_ATTR_BSSID]),
+	       ETH_ALEN);
+
+	params.status = nla_get_u16(info->attrs[NL80211_ATTR_STATUS_CODE]);
+
+	return rdev_external_auth(rdev, dev, &params);
+}
+#endif
+
 #define NL80211_FLAG_NEED_WIPHY		0x01
 #define NL80211_FLAG_NEED_NETDEV	0x02
 #define NL80211_FLAG_NEED_RTNL		0x04
@@ -11463,6 +11561,16 @@ static const struct genl_ops nl80211_ops[] = {
 		.internal_flags = NL80211_FLAG_NEED_NETDEV_UP |
 				  NL80211_FLAG_NEED_RTNL,
 	},
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+	{
+		.cmd = NL80211_CMD_EXTERNAL_AUTH,
+		.doit = nl80211_external_auth,
+		.policy = nl80211_policy,
+		.flags = GENL_ADMIN_PERM,
+		.internal_flags = NL80211_FLAG_NEED_NETDEV_UP |
+				  NL80211_FLAG_NEED_RTNL,
+	},
+#endif
 };
 
 /* notification functions */
@@ -13387,6 +13495,47 @@ void nl80211_send_ap_stopped(struct wireless_dev *wdev)
  out:
 	nlmsg_free(msg);
 }
+
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+int cfg80211_external_auth_request(struct net_device *dev,
+				   struct cfg80211_external_auth_params *params,
+				   gfp_t gfp)
+{
+	struct wireless_dev *wdev = dev->ieee80211_ptr;
+	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wdev->wiphy);
+	struct sk_buff *msg;
+	void *hdr;
+
+	msg = nlmsg_new(NLMSG_DEFAULT_SIZE, gfp);
+	if (!msg)
+		return -ENOMEM;
+
+	hdr = nl80211hdr_put(msg, 0, 0, 0, NL80211_CMD_EXTERNAL_AUTH);
+	if (!hdr)
+		goto nla_put_failure;
+
+	if (nla_put_u32(msg, NL80211_ATTR_WIPHY, rdev->wiphy_idx) ||
+	    nla_put_u32(msg, NL80211_ATTR_IFINDEX, dev->ifindex) ||
+	    nla_put_u32(msg, NL80211_ATTR_AKM_SUITES, params->key_mgmt_suite) ||
+	    nla_put_u32(msg, NL80211_ATTR_EXTERNAL_AUTH_ACTION,
+			params->action) ||
+	    nla_put(msg, NL80211_ATTR_BSSID, ETH_ALEN, params->bssid) ||
+	    nla_put(msg, NL80211_ATTR_SSID, params->ssid.ssid_len,
+		    params->ssid.ssid))
+		goto nla_put_failure;
+
+	genlmsg_end(msg, hdr);
+
+	genlmsg_multicast_netns(&nl80211_fam, wiphy_net(&rdev->wiphy), msg, 0,
+				NL80211_MCGRP_MLME, gfp);
+	return 0;
+
+ nla_put_failure:
+	nlmsg_free(msg);
+	return -ENOBUFS;
+}
+EXPORT_SYMBOL(cfg80211_external_auth_request);
+#endif
 
 /* initialisation/exit functions */
 

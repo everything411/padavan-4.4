@@ -240,6 +240,7 @@ source "net/mpls/Kconfig"
 source "net/hsr/Kconfig"
 source "net/switchdev/Kconfig"
 source "net/l3mdev/Kconfig"
+#source "net/shortcut-fe/Kconfig"
 
 config RPS
 	bool
@@ -415,13 +416,6 @@ source "net/nat/hw_nat/Kconfig"
 
 endif
 
-config SHORTCUT_FE
-	bool "Enables kernel network stack path for Shortcut Forwarding Engine"
-	depends on NF_CONNTRACK && IPV6
-	select NF_CONNTRACK_EVENTS
-	select NF_CONNTRACK_TIMEOUT
-	select NF_CONNTRACK_CHAIN_EVENTS
-
 config DST_CACHE
 	bool
 	default n
@@ -434,3 +428,30 @@ config HAVE_BPF_JIT
 
 config HAVE_EBPF_JIT
 	bool
+
+config BCM_KF_MISC_BACKPORTS
+	bool
+	default y
+
+config BCM_KF_NETFILTER
+	tristate "IPv4 fullcone support"
+	depends on NF_NAT_MASQUERADE_IPV4
+#	depends on NETFILTER_ADVANCED
+#	select NETFILTER_XT_TARGET_FULLCONENAT
+	help
+	  Porting from broadcom.
+
+config BCM_KF_CFG80211_BACKPORT
+	bool
+	default y
+
+config BCM_KF_NL80211_6G_BAND_SUPPORT
+	bool
+	default y
+
+config SHORTCUT_FE
+	bool "Enables kernel network stack path for Shortcut Forwarding Engine"
+	depends on NF_CONNTRACK && IPV6
+	select NF_CONNTRACK_EVENTS
+	select NF_CONNTRACK_TIMEOUT
+	select NF_CONNTRACK_CHAIN_EVENTS

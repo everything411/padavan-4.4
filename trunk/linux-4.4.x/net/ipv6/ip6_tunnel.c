@@ -1680,14 +1680,14 @@ EXPORT_SYMBOL(ip6_tnl_get_iflink);
 static int ipip6_dev_hnat_check(struct hnat_hw_path *path)
 {
 
-	struct net_device *dev = path->dev;
+	struct net_device *dev = path->real_dev;
 	struct ip6_tnl *tnl = netdev_priv(dev);
 
 	if (path->flags & HNAT_PATH_DSLITE)
 		return -EEXIST;
 
 	path->flags |= HNAT_PATH_DSLITE;
-	path->dev = tnl->dev;
+	path->real_dev = tnl->dev;
 
 	return 0;
 

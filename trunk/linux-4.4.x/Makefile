@@ -395,6 +395,8 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -Wno-format-security \
 		   -std=gnu89 $(call cc-option,-fno-PIE)
 
+#MODEL = $(subst -,,$(BUILD_NAME))
+#KBUILD_CFLAGS += -D$(MODEL)
 
 KBUILD_AFLAGS_KERNEL :=
 KBUILD_CFLAGS_KERNEL :=
@@ -476,6 +478,9 @@ asm-generic:
 
 version_h := include/generated/uapi/linux/version.h
 old_version_h := include/linux/version.h
+
+#ASUS EXT
+#include/linux/version.h: include/generated/uapi/linux/version.h
 
 no-dot-config-targets := clean mrproper distclean \
 			 cscope gtags TAGS tags help% %docs check% coccicheck \
@@ -641,6 +646,14 @@ KBUILD_CFLAGS	+= $(call cc-disable-warning, format-overflow)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, int-in-bool-context)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, address-of-packed-member)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, attribute-alias)
+
+ifneq ($(wildcard ./net/swrt_fastpath/*.c),)
+KBUILD_CFLAGS += -DPGB_QUICK_PATH
+export PGB_QUICK_PATH=y
+else ifneq ($(wildcard ./net/swrt_fastpath/*.obj),)
+KBUILD_CFLAGS += -DPGB_QUICK_PATH
+export PGB_QUICK_PATH=y
+endif
 
 ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS	+= -Os $(EXTRA_OPTIMIZATION)

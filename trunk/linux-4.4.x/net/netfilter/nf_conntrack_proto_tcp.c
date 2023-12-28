@@ -36,17 +36,21 @@
 #include <net/netfilter/ipv6/nf_conntrack_ipv6.h>
 
 /* Do not check the TCP window for incoming packets  */
-static int nf_ct_tcp_no_window_check __read_mostly = 1;
 #ifdef CONFIG_SHORTCUT_FE
+int nf_ct_tcp_no_window_check __read_mostly = 1;
 EXPORT_SYMBOL_GPL(nf_ct_tcp_no_window_check);
+#else
+static int nf_ct_tcp_no_window_check __read_mostly = 1;
 #endif
 
 /* "Be conservative in what you do,
     be liberal in what you accept from others."
     If it's non-zero, we mark only out of window RST segments as INVALID. */
-static int nf_ct_tcp_be_liberal __read_mostly = 0;
 #ifdef CONFIG_SHORTCUT_FE
+int nf_ct_tcp_be_liberal __read_mostly = 0;
 EXPORT_SYMBOL_GPL(nf_ct_tcp_be_liberal);
+#else
+static int nf_ct_tcp_be_liberal __read_mostly = 0;
 #endif
 
 /* If it is set to zero, we disable picking up already established
@@ -87,7 +91,7 @@ static const char *const tcp_conntrack_names[] = {
 static unsigned int tcp_timeouts[TCP_CONNTRACK_TIMEOUT_MAX] __read_mostly = {
 	[TCP_CONNTRACK_SYN_SENT]	= 2 MINS,
 	[TCP_CONNTRACK_SYN_RECV]	= 60 SECS,
-	[TCP_CONNTRACK_ESTABLISHED]	= 5 DAYS,
+	[TCP_CONNTRACK_ESTABLISHED]	= 20 MINS,
 	[TCP_CONNTRACK_FIN_WAIT]	= 2 MINS,
 	[TCP_CONNTRACK_CLOSE_WAIT]	= 60 SECS,
 	[TCP_CONNTRACK_LAST_ACK]	= 30 SECS,

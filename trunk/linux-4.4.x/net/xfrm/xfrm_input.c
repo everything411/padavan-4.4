@@ -294,6 +294,18 @@ int xfrm_input(struct sk_buff *skb, int nexthdr, __be32 spi, int encap_type)
 		skb_dst_force(skb);
 		dev_hold(skb->dev);
 
+#if defined (CONFIG_RALINK_HWCRYPTO) || defined (CONFIG_RALINK_HWCRYPTO_MODULE)
+		if (family == AF_INET)
+		{
+			if (x->type->input(x, skb) == 1)
+			{
+				return 0;
+			}
+			else
+				goto drop;
+		}
+		else	
+#endif
 		nexthdr = x->type->input(x, skb);
 
 		if (nexthdr == -EINPROGRESS)

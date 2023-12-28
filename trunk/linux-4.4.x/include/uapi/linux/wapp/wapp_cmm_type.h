@@ -58,6 +58,7 @@
 #define MAX_LEN_OF_SSID 32
 #define MAX_NUM_OF_CHANNELS		59 // 14 channels @2.4G +  12@UNII(lower/middle) + 16@HiperLAN2 + 11@UNII(upper) + 0@Japan + 1 as NULL termination
 #define ASSOC_REQ_LEN 154
+#define ASSOC_REQ_LEN_MAX 512
 #define PREQ_IE_LEN 128
 #define BCN_RPT_LEN 200
 #define IWSC_MAX_SUB_MASK_LIST_COUNT	3
@@ -71,6 +72,7 @@
 #define MAX_PROFILE_CNT 4
 #define PER_EVENT_LIST_MAX_NUM 		5
 #define	DAEMON_NEIGHBOR_REPORT_MAX_NUM 128
+#define VERSION_WAPP_CMM "v2.0.2"
 typedef enum {
 	WAPP_STA_INVALID,
 	WAPP_STA_DISCONNECTED,
@@ -180,6 +182,10 @@ typedef enum {
 #endif
 #endif
 	WAPP_CAC_PERIOD_EVENT,
+#ifdef WIFI_MD_COEX_SUPPORT
+	WAPP_UNSAFE_CHANNEL_EVENT,
+	WAPP_BAND_STATUS_CHANGE_EVENT,
+#endif
 } WAPP_EVENT_ID;
 
 typedef enum {
@@ -360,7 +366,6 @@ typedef struct GNU_PACKED _wapp_client_info {
 	u8 bssid[MAC_ADDR_LEN];
 	u8 sta_status; /* WAPP_STA_STATE */
 	u16 assoc_time;
-	u8 assoc_req[ASSOC_REQ_LEN];
 	u16 downlink;
 	u16 uplink;
 	signed char uplink_rssi;
@@ -373,7 +378,7 @@ typedef struct GNU_PACKED _wapp_client_info {
 	u32 rx_packets_errors;
 	u32 retransmission_count;
 	u16 link_availability;
-	u8 assoc_req_len;
+	u16 assoc_req_len;
 	u8 bLocalSteerDisallow;
 	u8 bBTMSteerDisallow;
 	u8 status;
@@ -387,7 +392,6 @@ typedef struct GNU_PACKED _wapp_client_info {
 #ifdef MAP_R2
 	wdev_extended_sta_metrics ext_metric_info;
 	u16 disassoc_reason;
-	u16 assoc_req_len_R2; 
 	u8 IsReassoc; 
 #endif
 	u8  is_APCLI;
@@ -396,6 +400,7 @@ typedef struct GNU_PACKED _wapp_client_info {
 struct GNU_PACKED chnList {
 	u8 channel;
 	u8 pref;
+	u16 cac_timer;
 };
 
 typedef struct GNU_PACKED _wdev_chn_info {
@@ -503,6 +508,7 @@ typedef struct GNU_PACKED _wapp_bcn_rpt_info {
 typedef struct GNU_PACKED wapp_bhsta_info {
 	u8 mac_addr[MAC_ADDR_LEN];
 	u8 connected_bssid[MAC_ADDR_LEN];
+	u8 peer_map_enable;
 } wapp_bhsta_info;
 
 typedef struct GNU_PACKED _wdev_steer_policy {
@@ -540,6 +546,7 @@ typedef struct GNU_PACKED _wapp_bss_state_info {
 typedef struct GNU_PACKED _wapp_ch_change_info {
 	u32 interface_index;
 	u8 new_ch;/*New channel IEEE number*/
+	u8 op_class;
 } wapp_ch_change_info;
 
 typedef struct GNU_PACKED _wapp_txpower_change_info {
@@ -551,6 +558,7 @@ typedef struct GNU_PACKED _wapp_apcli_association_info {
 	u32 interface_index;
 	WAPP_APCLI_ASSOC_STATE apcli_assoc_state;
 	signed char rssi;
+	signed char PeerMAPEnable;
 } wapp_apcli_association_info;
 
 typedef struct GNU_PACKED _wapp_bssload_crossing_info {
@@ -653,6 +661,17 @@ struct GNU_PACKED radar_notif_s
 	u32 channel;
 	u32 status;
 };
+
+#ifdef WIFI_MD_COEX_SUPPORT
+struct GNU_PACKED unsafe_channel_notif_s
+{
+	u32 ch_bitmap[4];
+};
+
+struct GNU_PACKED band_status_change {
+	u8 status;	/*0-radio temporarily cannot be used, 1-radio can be used*/
+};
+#endif
 
 typedef struct GNU_PACKED _NDIS_802_11_SSID {
 	u32 SsidLength;	/* length of SSID field below, in bytes; */
@@ -804,6 +823,10 @@ typedef union GNU_PACKED _wapp_event_data {
 #endif
 #endif /*DPP_SUPPORT*/
 	unsigned char cac_enable;
+#ifdef WIFI_MD_COEX_SUPPORT
+	struct unsafe_channel_notif_s unsafe_ch_notif;
+	struct band_status_change band_status;
+#endif
 } wapp_event_data;
 typedef struct GNU_PACKED _wapp_req_data {
 	u32	ifindex;

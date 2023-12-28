@@ -14,8 +14,9 @@
 #include "raether.h"
 #include "ra_ioctl.h"
 #include "raether_qdma.h"
-
-#include "mtk_hnat/nf_hnat_mtk.h"
+#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
+//#include "mtk_hnat/nf_hnat_mtk.h"
+#endif
 
 /* skb->mark to queue mapping table */
 struct QDMA_txdesc *free_head;
@@ -647,7 +648,8 @@ int rt2880_qdma_eth_send(struct END_DEVICE *ei_local, struct net_device *dev,
 
 	if ((ei_local->features & QDMA_QOS_MARK) && (skb->mark != 0)) {
 		if (skb->mark < 64) {
-			qidx = skb->mark;
+			qidx = M2Q_table[skb->mark];
+			//qidx = skb->mark;
 			cpu_ptr->txd_info4.QID = ((qidx & 0x30) >> 4);
 			cpu_ptr->txd_info3.QID = (qidx & 0x0f);
 		} else {
@@ -683,11 +685,19 @@ int rt2880_qdma_eth_send(struct END_DEVICE *ei_local, struct net_device *dev,
 			}
 		}
 	}
+#elif defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
+	//if (is_to_ppe(skb)) {
+	//	//clr_from_extge(skb);
+	//	cpu_ptr->txd_info4.FPORT = 4;	/* PPE */
+	//}
+	if (FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_PPE &&
+	    IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb) &&
+	    likely(IS_SPACE_AVAILABLE_HEAD(skb))) {
+		FOE_MAGIC_TAG_HEAD(skb) = 0;
+		cpu_ptr->txd_info4.FPORT = 4;	/* PPE */
+	}
 #endif
-	
-	if (HNAT_SKB_CB2(skb)->magic == 0x78681415)
-	cpu_ptr->txd_info4.FPORT = 4;	
-	
+
 	/* dma_sync_single_for_device(NULL, virt_to_phys(skb->data), */
 	/* skb->len, DMA_TO_DEVICE); */
 	cpu_ptr->txd_info3.SWC_bit = 1;
@@ -808,7 +818,8 @@ int rt2880_qdma_eth_send_tso(struct END_DEVICE *ei_local,
 	/* cpu_ptr->txd_info3.QID = ring_no; */
 	if ((ei_local->features & QDMA_QOS_MARK) && (skb->mark != 0)) {
 		if (skb->mark < 64) {
-			qidx = skb->mark;
+			qidx = M2Q_table[skb->mark];
+			//qidx = skb->mark;
 			cpu_ptr->txd_info4.QID = ((qidx & 0x30) >> 4);
 			cpu_ptr->txd_info3.QID = (qidx & 0x0f);
 		} else {
@@ -862,6 +873,17 @@ int rt2880_qdma_eth_send_tso(struct END_DEVICE *ei_local,
 				FOE_MAGIC_TAG(skb) = 0;
 			}
 		}
+	}
+#elif defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
+	//if (is_to_ppe(skb)) {
+	//	//clr_from_extge(skb);
+	//	cpu_ptr->txd_info4.FPORT = 4;	/* PPE */
+	//}
+	if (FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_PPE &&
+	    IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb) &&
+	    likely(IS_SPACE_AVAILABLE_HEAD(skb))) {
+		FOE_MAGIC_TAG_HEAD(skb) = 0;
+		cpu_ptr->txd_info4.FPORT = 4;	/* PPE */
 	}
 #endif
 
@@ -1260,6 +1282,14 @@ int ei_qdma_start_xmit(struct sk_buff *skb, struct net_device *dev, int gmac_no)
 #if defined(CONFIG_RA_HW_NAT)  || defined(CONFIG_RA_HW_NAT_MODULE)
 	if (ra_sw_nat_hook_tx) {
 		if (ra_sw_nat_hook_tx(skb, gmac_no) != 1) {
+			dev_kfree_skb_any(skb);
+			return 0;
+		}
+	}
+#elif defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
+	if (FOE_MAGIC_TAG_HEAD(skb) != FOE_MAGIC_PPE) {
+		if (ra_sw_nat_hook_tx &&
+		    ra_sw_nat_hook_tx(skb, gmac_no) != 1) {
 			dev_kfree_skb_any(skb);
 			return 0;
 		}

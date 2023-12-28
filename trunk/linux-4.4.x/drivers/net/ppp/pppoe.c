@@ -1009,14 +1009,14 @@ static int pppoe_hnat_check(struct ppp_channel *chan,
             !(sk->sk_state & PPPOX_CONNECTED) || !dev)
                 return -ENODEV;
 
-        path->dev = po->pppoe_dev;
+        path->real_dev = po->pppoe_dev;
         path->flags |= HNAT_PATH_PPPOE;
         memcpy(path->eth_src, po->pppoe_dev->dev_addr, ETH_ALEN);
         memcpy(path->eth_dest, po->pppoe_pa.remote, ETH_ALEN);
         path->pppoe_sid = be16_to_cpu(po->num);
 
-        if (path->dev->netdev_ops->ndo_hnat_check)
-                return path->dev->netdev_ops->ndo_hnat_check(path);
+        if (path->real_dev->netdev_ops->ndo_hnat_check)
+                return path->real_dev->netdev_ops->ndo_hnat_check(path);
 
         return 0;
 }

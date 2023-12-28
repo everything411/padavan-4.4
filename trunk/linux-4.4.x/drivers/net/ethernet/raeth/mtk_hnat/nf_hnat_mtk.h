@@ -16,37 +16,84 @@
 
 #include <linux/dma-mapping.h>
 #include <linux/netdevice.h>
+//#include "../mtk_eth_soc.h"
 
 #define HNAT_SKB_CB2(__skb) ((struct hnat_skb_cb2 *)&((__skb)->cb[44]))
 struct hnat_skb_cb2 {
 	__u32 magic;
 };
 
+#if defined(CONFIG_MEDIATEK_NETSYS_V3)
+struct hnat_desc {
+	u32 entry : 15;
+	u32 resv0 : 3;
+	u32 crsn : 5;
+	u32 resv1 : 3;
+	u32 sport : 4;
+	u32 resv2 : 1;
+	u32 alg : 1;
+	u32 iface : 7;
+	u32 reentry : 1;
+	u32 wdmaid : 2;
+	u32 rxid : 2;
+	u32 wcid : 16;
+	u32 bssid : 8;
+	u32 usr_info : 16;
+	u32 tid : 4;
+	u32 is_fixedrate : 1;
+	u32 is_prior : 1;
+	u32 is_sp : 1;
+	u32 hf : 1;
+	u32 amsdu : 1;
+	u32 resv3 : 19;
+	u32 magic_tag_protect : 16;
+} __packed;
+#elif defined(CONFIG_MEDIATEK_NETSYS_RX_V2)
+struct hnat_desc {
+	u32 entry : 15;
+	u32 resv0 : 3;
+	u32 crsn : 5;
+	u32 resv1 : 3;
+	u32 sport : 4;
+	u32 resv2 : 1;
+	u32 alg : 1;
+	u32 iface : 7;
+	u32 reentry : 1;
+	u32 wdmaid : 2;
+	u32 rxid : 2;
+	u32 wcid : 10;
+	u32 bssid : 6;
+	u32 resv5 : 20;
+	u32 magic_tag_protect : 16;
+} __packed;
+#else
 struct hnat_desc {
 	u32 entry : 14;
 	u32 crsn : 5;
-	u32 sport : 3;
-	u32 rev : 1;
+	u32 sport : 4;
+	/*u32 sport : 3;
+	u32 rev : 1;*/
 	u32 alg : 1;
-	u32 iface : 4;
-	u32 resv : 4;
+	/*u32 iface : 4;
+	u32 filled : 3;
+	u32 resv : 1;*/
+	u32 iface : 7;
+	u32 reentry : 1;
 	u32 magic_tag_protect : 16;
 	u32 wdmaid : 8;
 	u32 rxid : 2;
+	/*u32 wcid : 10;*/
 	u32 wcid : 8;
 	u32 bssid : 6;
 } __packed;
-
-#if (1)
-#define HQOS_MAGIC_TAG 0x5678
-#define HAS_HQOS_MAGIC_TAG(skb) (skb->protocol == HQOS_MAGIC_TAG)
-#else
-#define HAS_HQOS_MAGIC_TAG(skb) NULL
 #endif
 
+#define HQOS_MAGIC_TAG 0x5678
+#define HAS_HQOS_MAGIC_TAG(skb) (qos_toggle && skb->protocol == HQOS_MAGIC_TAG)
+
 #define HNAT_MAGIC_TAG 0x6789
-#define WIFI_INFO_LEN 3
-#define FOE_INFO_LEN (10 + WIFI_INFO_LEN)
+#define WIFI_INFO_LEN 0
+#define FOE_INFO_LEN (6 + WIFI_INFO_LEN)
 #define IS_SPACE_AVAILABLE_HEAD(skb)                                           \
 	((((skb_headroom(skb) >= FOE_INFO_LEN) ? 1 : 0)))
 
@@ -57,19 +104,40 @@ struct hnat_desc {
 #define skb_hnat_sport(skb) (((struct hnat_desc *)(skb->head))->sport)
 #define skb_hnat_alg(skb) (((struct hnat_desc *)(skb->head))->alg)
 #define skb_hnat_iface(skb) (((struct hnat_desc *)(skb->head))->iface)
+//#define skb_hnat_filled(skb) (((struct hnat_desc *)(skb->head))->filled)
+#define skb_hnat_reentry(skb) (((struct hnat_desc *)(skb->head))->reentry)
 #define skb_hnat_magic_tag(skb) (((struct hnat_desc *)((skb)->head))->magic_tag_protect)
 #define skb_hnat_wdma_id(skb) (((struct hnat_desc *)((skb)->head))->wdmaid)
 #define skb_hnat_rx_id(skb) (((struct hnat_desc *)((skb)->head))->rxid)
 #define skb_hnat_wc_id(skb) (((struct hnat_desc *)((skb)->head))->wcid)
 #define skb_hnat_bss_id(skb) (((struct hnat_desc *)((skb)->head))->bssid)
-#define do_ext2ge_fast_try(dev, skb) (IS_EXT(dev) && !is_from_extge(skb))
-#define set_from_extge(skb) (HNAT_SKB_CB2(skb)->magic = 0x78786688)
-#define clr_from_extge(skb) (HNAT_SKB_CB2(skb)->magic = 0x0)
-#define set_to_ppe(skb) (HNAT_SKB_CB2(skb)->magic = 0x78681415)
-#define is_from_extge(skb) (HNAT_SKB_CB2(skb)->magic == 0x78786688)
+#define skb_hnat_usr_info(skb) (((struct hnat_desc *)((skb)->head))->usr_info)
+#define skb_hnat_tid(skb) (((struct hnat_desc *)((skb)->head))->tid)
+#define skb_hnat_is_fixedrate(skb)				\
+	(((struct hnat_desc *)((skb)->head))->is_fixedrate)
+#define skb_hnat_is_prior(skb) (((struct hnat_desc *)((skb)->head))->is_prior)
+#define skb_hnat_is_sp(skb) (((struct hnat_desc *)((skb)->head))->is_sp)
+#define skb_hnat_hf(skb) (((struct hnat_desc *)((skb)->head))->hf)
+#define skb_hnat_amsdu(skb) (((struct hnat_desc *)((skb)->head))->amsdu)
+#define skb_hnat_ppe2(sport)						\
+	((sport == NR_GMAC3_PORT ||			\
+	  sport == NR_WDMA2_PORT) && CFG_PPE_NUM == 3)
+#define skb_hnat_ppe1(sport)						\
+	((sport == NR_GMAC2_PORT && CFG_PPE_NUM == 3) ||	\
+	 (sport == NR_WDMA1_PORT && CFG_PPE_NUM > 1))
+#define skb_hnat_ppe(skb)						\
+	(skb_hnat_ppe2(skb_hnat_sport(skb)) ? 2 : (skb_hnat_ppe1(skb_hnat_sport(skb)) ? 1 : 0))
+#define headroom_ppe(h) \
+	(skb_hnat_ppe2(h.sport) ? 2 : (skb_hnat_ppe1(h.sport) ? 1 : 0))
+
+#define clr_from_extge(skb) (skb_hnat_reentry(skb) = 0)
+#define set_from_extge(skb) (skb_hnat_reentry(skb) = 1)
+#define is_from_extge(skb) (skb_hnat_reentry(skb))
+#define set_from_mape(skb) (skb_hnat_reentry(skb) = 1)
+#define is_from_mape(skb) (skb_hnat_reentry(skb))
+#define set_to_ppe(skb) (skb_hnat_alg(skb) = 1, skb_hnat_iface(skb) = FOE_MAGIC_PPE)
+#define is_to_ppe(skb) (skb_hnat_iface(skb) == FOE_MAGIC_PPE)
 #define is_magic_tag_valid(skb) (skb_hnat_magic_tag(skb) == HNAT_MAGIC_TAG)
-#define set_from_mape(skb) (HNAT_SKB_CB2(skb)->magic = 0x78787788)
-#define is_from_mape(skb) (HNAT_SKB_CB2(skb)->magic == 0x78787788)
 #define is_unreserved_port(hdr)						       \
 	((ntohs(hdr->source) > 1023) && (ntohs(hdr->dest) > 1023))
 
@@ -98,6 +166,10 @@ struct hnat_desc {
 #define HIT_PRE_BIND 0x1A
 #define HIT_BIND_PACKET_SAMPLING 0x1B
 #define HIT_BIND_EXCEED_MTU 0x1C
+
+#define TPORT_ID(x) ((x) & GENMASK(3, 0))
+#define TOPS_ENTRY(x) ((x) & GENMASK(5, 0))
+#define CDRT_ID(x) ((x) & GENMASK(7, 0))
 
 u32 hnat_tx(struct sk_buff *skb);
 u32 hnat_set_skb_info(struct sk_buff *skb, u32 *rxd);

@@ -34,8 +34,13 @@ extern int usb_wwan_resume(struct usb_serial *serial);
 struct usb_wwan_intf_private {
 	spinlock_t susp_lock;
 	unsigned int suspended:1;
+//#if !defined(CONFIG_FIBOCOM_FG621)
 	unsigned int use_send_setup:1;
+//#endif
 	int in_flight;
+#if defined(CONFIG_FIBOCOM_FG621)
+	int (*send_setup) (struct usb_serial_port *port);
+#endif
 	unsigned int open_ports;
 	void *private;
 };

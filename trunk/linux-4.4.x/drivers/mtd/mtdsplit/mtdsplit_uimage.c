@@ -142,8 +142,8 @@ static int __mtdsplit_parse_uimage(struct mtd_info *master,
 		}
 		header = (struct uimage_header *)(buf + ret);
 
+//		uimage_size = sizeof(*header) + be32_to_cpu(header->ih_size) + ret;
 		uimage_size = be32_to_cpu(header->ih_ksz) + ret;
-//		uimage_size = sizeof(*header) + be32_to_cpu(header->ih_ksz) + ret;
 		if ((offset + uimage_size) > master->size) {
 			pr_debug("uImage exceeds MTD device \"%s\"\n",
 				 master->name);

@@ -40,7 +40,7 @@ fi
 
 # older versions of depmod require the version string to start with three
 # numbers, so we cheat with a symlink here
-		depmod_hack_needed=false
+depmod_hack_needed=false
 #tmp_dir=$(mktemp -d ${TMPDIR:-/tmp}/depmod.XXXXXX)
 #mkdir -p "$tmp_dir/lib/modules/$KERNELRELEASE"
 #if "$DEPMOD" -b "$tmp_dir" $KERNELRELEASE 2>/dev/null; then

@@ -462,7 +462,11 @@ void usbnet_defer_kevent (struct usbnet *dev, int work)
 	set_bit (work, &dev->flags);
 	if (!schedule_work (&dev->kevent)) {
 		if (net_ratelimit())
+#if defined(CONFIG_BCM_KF_MISC_BACKPORTS)
+			netdev_dbg(dev->net, "kevent %d may have been dropped\n", work);
+#else
 			netdev_err(dev->net, "kevent %d may have been dropped\n", work);
+#endif
 	} else {
 		netdev_dbg(dev->net, "kevent %d scheduled\n", work);
 	}
@@ -2211,8 +2215,13 @@ int usbnet_write_cmd_async(struct usbnet *dev, u8 cmd, u8 reqtype,
 
 	urb = usb_alloc_urb(0, GFP_ATOMIC);
 	if (!urb) {
+#if defined(CONFIG_BCM_KF_MISC_BACKPORTS)
+		netdev_dbg(dev->net, "Error allocating URB in"
+			   " %s!\n", __func__);
+#else
 		netdev_err(dev->net, "Error allocating URB in"
 			   " %s!\n", __func__);
+#endif
 		goto fail;
 	}
 

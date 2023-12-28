@@ -94,8 +94,12 @@ static inline unsigned int __tcp_hdrlen(const struct tcphdr *th)
 	return th->doff * 4;
 }
 #endif
-/*
-#if KERNEL_VERSION(4, 6, 0) > LINUX_VERSION_CODE
+
+#if KERNEL_VERSION(4, 5, 0) > LINUX_VERSION_CODE
+#define IP6_ECN_set_ce(_a, _b) IP6_ECN_set_ce(_b)
+#endif
+
+/*#if KERNEL_VERSION(4, 6, 0) > LINUX_VERSION_CODE
 static inline int skb_try_make_writable(struct sk_buff *skb,
 					unsigned int write_len)
 {
@@ -124,7 +128,7 @@ static inline int skb_mac_offset(const struct sk_buff *skb)
 #endif
 
 
-#if KERNEL_VERSION(4, 12, 0) > LINUX_VERSION_CODE
+/*#if KERNEL_VERSION(4, 12, 0) > LINUX_VERSION_CODE
 static void *kvzalloc(size_t sz, gfp_t flags)
 {
 	void *ptr = kzalloc(sz, flags);
@@ -134,7 +138,7 @@ static void *kvzalloc(size_t sz, gfp_t flags)
 	return ptr;
 }
 #endif
-
+*/
 /* save the best till last
  * qdisc_tree_reduce_backlog appears in kernel from:
 3.16.37 onward

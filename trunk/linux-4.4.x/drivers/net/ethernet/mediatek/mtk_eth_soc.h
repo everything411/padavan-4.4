@@ -39,16 +39,22 @@
 				 NETIF_MSG_TX_ERR)
 #define MTK_HW_FEATURES		(NETIF_F_IP_CSUM | \
 				 NETIF_F_RXCSUM | \
+				 NETIF_F_HW_VLAN_CTAG_TX | \
+				 NETIF_F_HW_VLAN_CTAG_RX | \
 				 NETIF_F_SG | NETIF_F_TSO | \
 				 NETIF_F_TSO6 | \
 				 NETIF_F_IPV6_CSUM)
 #define NEXT_RX_DESP_IDX(X, Y)	(((X) + 1) & ((Y) - 1))
+#define IS_HW_LRO_RING(ring_no)	((ring_no > 0) && (ring_no < 4))
+#define FOR_EACH_LRO_RING(ring_no)		\
+	for ((ring_no) = 1; (ring_no) < 4; (ring_no)++)
 
 #define MTK_MAX_RX_RING_NUM	4
 #define MTK_HW_LRO_DMA_SIZE	8
 
 #define	MTK_MAX_LRO_RX_LENGTH		(4096 * 3)
 #define	MTK_MAX_LRO_IP_CNT		2
+#define MTK_HW_LRO_RING_NUM		3
 #define	MTK_HW_LRO_TIMER_UNIT		1	/* 20 us */
 #define	MTK_HW_LRO_REFRESH_TIME		50000	/* 1 sec. */
 #define	MTK_HW_LRO_AGG_TIME		10	/* 200us */
@@ -73,22 +79,30 @@
 /* Frame Engine Interrupt Grouping Register */
 #define MTK_FE_INT_GRP		0x20
 
+/* Frame Engine LRO auto-learn table info */
+#define MTK_FE_ALT_CF8		0x300
+#define MTK_FE_ALT_SGL_CFC	0x304
+#define MTK_FE_ALT_SEQ_CFC	0x308
+
 /* CDMP Ingress Control Register */
 #define MTK_CDMQ_IG_CTRL	0x1400
 #define MTK_CDMQ_STAG_EN	BIT(0)
 
 /* CDMP Ingress Control Register */
 #define MTK_CDMP_IG_CTRL       0x400
+#define MTK_CDMP_STAG_EN	BIT(0)
 
 /* CDMP Exgress Control Register */
 #define MTK_CDMP_EG_CTRL	0x404
 
 /* GDM Exgress Control Register */
 #define MTK_GDMA_FWD_CFG(x)	(0x500 + (x * 0x1000))
+#define MTK_GDMA_SPEC_TAG	BIT(24)
 #define MTK_GDMA_ICS_EN		BIT(22)
 #define MTK_GDMA_TCS_EN		BIT(21)
 #define MTK_GDMA_UCS_EN		BIT(20)
 #define MTK_GDMA_DROP_ALL       0x7777
+#define MTK_GDMA_PDMA_ALL       0x0
 
 /* Unicast Filter MAC Address Register - Low */
 #define MTK_GDMA_MAC_ADRL(x)	(0x508 + (x * 0x1000))
@@ -111,6 +125,7 @@
 /* PDMA HW LRO Control Registers */
 #define MTK_PDMA_LRO_CTRL_DW0	0x980
 #define MTK_LRO_EN			BIT(0)
+#define MTK_LRO_CRSN_BNW		BIT(6)
 #define MTK_L3_CKS_UPD_EN		BIT(7)
 #define MTK_LRO_ALT_PKT_CNT_MODE	BIT(21)
 #define MTK_LRO_RING_RELINQUISH_REQ	(0x7 << 26)
@@ -174,6 +189,36 @@
 #define MTK_RING_MAX_AGG_CNT_L		((MTK_HW_LRO_MAX_AGG_CNT & 0x3f) << 26)
 #define MTK_RING_MAX_AGG_CNT_H		((MTK_HW_LRO_MAX_AGG_CNT >> 6) & 0x3)
 
+/* LRO_RX_RING_CTRL_DW masks */
+#define BITS(m, n)			(~(BIT(m) - 1) & ((BIT(n) - 1) | BIT(n)))
+#define MTK_LRO_RING_AGG_TIME_MASK	BITS(10, 25)
+#define MTK_LRO_RING_AGG_CNT_L_MASK	BITS(26, 31)
+#define MTK_LRO_RING_AGG_CNT_H_MASK	BITS(0, 1)
+#define MTK_LRO_RING_AGE_TIME_L_MASK	BITS(22, 31)
+#define MTK_LRO_RING_AGE_TIME_H_MASK	BITS(0, 5)
+
+/* LRO_RX_RING_CTRL_DW0 offsets */
+#define MTK_RX_IPV6_FORCE_OFFSET	(0)
+#define MTK_RX_IPV4_FORCE_OFFSET	(1)
+
+/* LRO_RX_RING_CTRL_DW1 offsets  */
+#define MTK_LRO_RING_AGE_TIME_L_OFFSET	(22)
+
+/* LRO_RX_RING_CTRL_DW2 offsets  */
+#define MTK_LRO_RING_AGE_TIME_H_OFFSET	(0)
+#define MTK_RX_MODE_OFFSET		(6)
+#define MTK_RX_PORT_VALID_OFFSET	(8)
+#define MTK_RX_MYIP_VALID_OFFSET	(9)
+#define MTK_LRO_RING_AGG_TIME_OFFSET	(10)
+#define MTK_LRO_RING_AGG_CNT_L_OFFSET	(26)
+
+/* LRO_RX_RING_CTRL_DW3 offsets  */
+#define MTK_LRO_RING_AGG_CNT_H_OFFSET	(0)
+
+/* LRO_RX_RING_STP_DTP_DW offsets */
+#define MTK_RX_TCP_DEST_PORT_OFFSET	(0)
+#define MTK_RX_TCP_SRC_PORT_OFFSET	(16)
+
 /* QDMA TX Queue Configuration Registers */
 #define MTK_QTX_CFG(x)		(0x1800 + (x * 0x10))
 #define QDMA_RES_THRES		4
@@ -215,6 +260,7 @@
 /* QDMA Flow Control Register */
 #define MTK_QDMA_FC_THRES	0x1A10
 #define FC_THRES_DROP_MODE	BIT(20)
+#define FC_THRES_DROP_FSTVQ	BIT(19)
 #define FC_THRES_DROP_EN	(7 << 16)
 #define FC_THRES_MIN		0x4444
 
@@ -242,8 +288,11 @@
 /* QDMA Interrupt Status Register */
 #define MTK_QDMA_INT_MASK	0x1A1C
 
-/* QDMA Interrupt Mask Register */
+/* QDMA HW/SW RED Distribution Register */
+#define MTK_QDMA_HRED1		0x1A40
 #define MTK_QDMA_HRED2		0x1A44
+#define MTK_QDMA_SRED1		0x1A48
+#define MTK_QDMA_SRED2		0x1A4C
 
 /* QDMA TX Forward CPU Pointer Register */
 #define MTK_QTX_CTX_PTR		0x1B00
@@ -284,6 +333,7 @@
 #define TX_DMA_TSO		BIT(28)
 #define TX_DMA_FPORT_SHIFT	25
 #define TX_DMA_FPORT_MASK	0x7
+#define TX_DMA_VQIDO		BIT(17)
 #define TX_DMA_INS_VLAN		BIT(16)
 
 /* QDMA descriptor txd3 */
@@ -292,19 +342,33 @@
 #define TX_DMA_PLEN0(_x)	(((_x) & MTK_TX_DMA_BUF_LEN) << 16)
 #define TX_DMA_SWC		BIT(14)
 #define TX_DMA_SDL(_x)		(((_x) & 0x3fff) << 16)
+#define TX_DMA_IPOFST(_x)	(((_x) & 0x7f) << 7)
+#define TX_DMA_PROT(_x)		(((_x) & 0x7) << 4)
+#define TX_DMA_VQID(_x)		(((_x) & 0x3ff) << 4)
 
 /* QDMA descriptor rxd2 */
 #define RX_DMA_DONE		BIT(31)
+#define RX_DMA_PLEN1(_x)	(((_x) & 0x3) << 0)
 #define RX_DMA_PLEN0(_x)	(((_x) & 0x3fff) << 16)
+#define RX_DMA_GET_PLEN1(_x)	(((_x) >> 0) & 0x3)
+#define RX_DMA_GET_AGG_CNT(_x)	(((_x) >> 2) & 0xff)
+#define RX_DMA_GET_REV(_x)	(((_x) >> 10) & 0x1f)
 #define RX_DMA_GET_PLEN0(_x)	(((_x) >> 16) & 0x3fff)
+#define RX_DMA_VTAG             BIT(15)
 
 /* QDMA descriptor rxd3 */
-#define RX_DMA_VID(_x)		((_x) & 0xfff)
+#define RX_DMA_VID(_x)		((_x) & VLAN_VID_MASK)
+#define RX_DMA_TCI(_x)		((_x) & (VLAN_PRIO_MASK | VLAN_VID_MASK))
+#define RX_DMA_VPID(_x)		(((_x) >> 16) & 0xffff)
 
 /* QDMA descriptor rxd4 */
 #define RX_DMA_L4_VALID		BIT(24)
 #define RX_DMA_FPORT_SHIFT	19
 #define RX_DMA_FPORT_MASK	0x7
+
+/* PHY Polling and SMI Master Control */
+#define MTK_PHY_PSC		0x10000
+#define PHY_AP_EN		BIT(31)
 
 /* PHY Indirect Access Control registers */
 #define MTK_PHY_IAC		0x10004
@@ -342,6 +406,15 @@
 				 MAC_MCR_BACKPR_EN | MAC_MCR_FORCE_RX_FC | \
 				 MAC_MCR_FORCE_TX_FC | MAC_MCR_SPEED_1000 | \
 				 MAC_MCR_FORCE_DPX | MAC_MCR_FORCE_LINK)
+
+/* Mac EEE control registers */
+#define MTK_MAC_EEE(x)	(0x10104 + (x * 0x100))
+#define MAC_WAKEUP_TIME_1000(x)	((x << 24) & GENMASK(31, 24))
+#define MAC_WAKEUP_TIME_100(x)	((x << 16) & GENMASK(23, 16))
+#define MAC_LPI_TXIDLE_THD(x)	((x << 8) & GENMASK(15, 8))
+#define MAC_EEE_SETTING_MASK	(MAC_WAKEUP_TIME_1000(0xff) | \
+				 MAC_WAKEUP_TIME_100(0xff) | \
+				 MAC_LPI_TXIDLE_THD(0xff))
 
 /* TRGMII RXC control register */
 #define TRGMII_RCK_CTRL		0x10300
@@ -403,11 +476,16 @@
 #define ETHSYS_RSTCTRL		0x34
 #define RSTCTRL_FE		BIT(6)
 #define RSTCTRL_PPE		BIT(31)
+#define RSTCTRL_ETH		BIT(23)
 
 /* SGMII subsystem config registers */
 /* Register to auto-negotiation restart */
 #define SGMSYS_PCS_CONTROL_1	0x0
+#define SGMII_AN_ENABLE		BIT(12)
 #define SGMII_AN_RESTART	BIT(9)
+
+#define SGMSYS_PCS_SPEED_ABILITY	0x8
+#define SGMII_TX_CONFIG		BIT(0)
 
 /* Register to programmable link timer, the unit in 2 * 8ns */
 #define SGMSYS_PCS_LINK_TIMER	0x18
@@ -416,10 +494,12 @@
 /* Register to control remote fault */
 #define SGMSYS_SGMII_MODE	0x20
 #define SGMII_REMOTE_FAULT_DIS	BIT(8)
+#define SGMII_SPEED_DUPLEX_AN	BIT(1)
 
 /* Register to power up QPHY */
 #define SGMSYS_QPHY_PWR_STATE_CTRL 0xe8
 #define	SGMII_PHYA_PWD		BIT(4)
+#define	SGMII_PHYA_DOWN_IDLE	GENMASK(4, 0)
 
 /* Infrasys subsystem config registers */
 #define INFRA_MISC2		0x70c
@@ -599,6 +679,7 @@ enum mtk_rx_flags {
  * @frag_size:		How big can each fragment be
  * @buf_size:		The size of each packet buffer
  * @calc_idx:		The current head of ring
+ * @ring_no:		The index of ring
  */
 struct mtk_rx_ring {
 	struct mtk_rx_dma *dma;
@@ -610,6 +691,7 @@ struct mtk_rx_ring {
 	bool calc_idx_update;
 	u16 calc_idx;
 	u32 crx_idx_reg;
+	u32 ring_no;
 };
 
 enum mtk_eth_mux {
@@ -858,6 +940,8 @@ struct mtk_mac {
 
 /* the struct describing the SoC. these are declared in the soc_xyz.c files */
 extern const struct of_device_id of_mtk_match[];
+
+extern u32 mtk_hwlro_stats_ebl;
 
 /* read the hardware status register */
 void mtk_stats_update_mac(struct mtk_mac *mac);

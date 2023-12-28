@@ -197,6 +197,15 @@ function getHash(){
                                             </td>
                                         </tr>
                                             <tr>
+                                                <th>自定义接口</th>
+                                                <td>
+                                                    <input type="text" maxlength="10" class="input" size="10" name="sqm_active" value="<% nvram_get_x("","sqm_active"); %>"/>
+                                                </td>
+                                                <td>
+                                                    &nbsp;<span style="color:#888;">上项菜单需选择“自定义接口“ 可填写例如:ra0</span>
+                                                </td>
+                                            </tr>
+                                            <tr>
                                                 <th>队列规则</th>
                                                 <td>
                                                     <select name="sqm_qdisc" class="input">

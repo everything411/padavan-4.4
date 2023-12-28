@@ -3221,6 +3221,7 @@ void fe_sw_preinit(struct END_DEVICE *ei_local)
 	}
 }
 
+#if !defined (CONFIG_RAETH_ESW_CONTROL)
 int init_rtl8367s(void)
 {
 	struct END_DEVICE *ei_local = netdev_priv(dev_raether);
@@ -3447,6 +3448,7 @@ void set_sgmii_an(int port_num)
 	sys_reg_write(virt_addr + 0xe8, reg_value);
 	iounmap(virt_addr);
 }
+#endif
 
 static void mt7622_esw_5port_gpio(void)
 {
@@ -3746,8 +3748,10 @@ void fe_sw_init(void)
 		set_ge2_force_1000();
 		if (ei_local->chip_name == MT7623_FE)
 			setup_external_gsw();
+#if !defined (CONFIG_RAETH_ESW_CONTROL)
 		if (ei_local->chip_name == MT7622_FE)
 			set_rtl8367s_rgmii();
+#endif
 	}
 	/*TODO
 	 * else
@@ -3798,6 +3802,7 @@ void fe_sw_init(void)
 		sys_reg_write(ethsys_base_virt + 0x14, reg_value);
 	}
 
+#if !defined (CONFIG_RAETH_ESW_CONTROL)
 	if (ei_local->architecture & GE1_SGMII_FORCE_2500) {
 		set_rtl8367s_sgmii();
 		set_sgmii_force_link(1, 1);
@@ -3805,6 +3810,7 @@ void fe_sw_init(void)
 		enable_auto_negotiate(ei_local);
 		set_sgmii_an(1);
 	}
+#endif
 	if (ei_local->chip_name == LEOPARD_FE) {
 		if (ei_local->architecture & GE2_RAETH_SGMII) {
 			/*bit[1]: gphy connect GMAC0 or GMAC2 1:GMAC0. 0:GMAC2*/
@@ -3817,6 +3823,7 @@ void fe_sw_init(void)
 		}
 	}
 
+#if !defined (CONFIG_RAETH_ESW_CONTROL)
 	if (ei_local->architecture & GE2_SGMII_FORCE_2500) {
 		if (ei_local->architecture & SGMII_SWITCH)
 			set_rtl8367s_sgmii();
@@ -3825,6 +3832,7 @@ void fe_sw_init(void)
 		enable_auto_negotiate(ei_local);
 		set_sgmii_an(2);
 	}
+#endif
 
 	if (ei_local->architecture & MT7622_EPHY) {
 		mt7622_ephy_cal();
@@ -3951,6 +3959,11 @@ static void esw_link_status_changed(int port_no, void *dev_id)
 	unsigned int reg_val;
 
 	mii_mgr_read(31, (0x3008 + (port_no * 0x100)), &reg_val);
+	if (reg_val & 0x1)
+		pr_info("ESW: Link Status Changed - Port%d Link UP\n", port_no);
+	else
+		pr_info("ESW: Link Status Changed - Port%d Link Down\n",
+			port_no);
 
 	if (esw_link_status_hook)
 		esw_link_status_hook(port_no, reg_val & 0x1);
@@ -4145,6 +4158,7 @@ irqreturn_t esw_interrupt(int irq, void *resv)
 
 void sw_ioctl(struct ra_switch_ioctl_data *ioctl_data)
 {
+#if !defined (CONFIG_RAETH_ESW_CONTROL)
 	unsigned int cmd;
 
 	cmd = ioctl_data->cmd;
@@ -4291,6 +4305,7 @@ void sw_ioctl(struct ra_switch_ioctl_data *ioctl_data)
 	default:
 		break;
 	}
+#endif
 }
 
 int ephy_ioctl(struct net_device *dev, struct ifreq *ifr,

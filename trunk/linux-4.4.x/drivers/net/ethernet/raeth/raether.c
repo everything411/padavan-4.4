@@ -19,8 +19,6 @@
 #include "raether_hwlro.h"
 #include "ra_ethtool.h"
 
-#include "mtk_hnat/nf_hnat_mtk.h"
-
 void __iomem *ethdma_sysctl_base;
 #if defined(CONFIG_RA_HW_NAT)  || defined(CONFIG_RA_HW_NAT_MODULE)
 EXPORT_SYMBOL(ethdma_sysctl_base);
@@ -287,17 +285,22 @@ static int rt2880_eth_recv(struct net_device *dev,
 		/* rx packet from GE2 */
 		if (rx_ring->rxd_info4.SP == 2) {
 			if (likely(ei_local->pseudo_dev)) {
-				rx_skb->dev = ei_local->pseudo_dev;
 				rx_skb->protocol =
 				    eth_type_trans(rx_skb,
 						   ei_local->pseudo_dev);
+				p_ad->stat.rx_packets++;
+				p_ad->stat.rx_bytes += length;
 			} else {
 				pr_err("pseudo_dev is still not initialize ");
 				pr_err("but receive packet from GMAC2\n");
+				dev_kfree_skb_any(rx_skb);
+				ei_local->stat.rx_dropped++;
+				goto skb_skip;
 			}
 		} else {
-			rx_skb->dev = dev;
 			rx_skb->protocol = eth_type_trans(rx_skb, dev);
+			ei_local->stat.rx_packets++;
+			ei_local->stat.rx_bytes += length;
 		}
 
 		/* rx checksum offload */
@@ -305,6 +308,13 @@ static int rt2880_eth_recv(struct net_device *dev,
 			rx_skb->ip_summed = CHECKSUM_UNNECESSARY;
 		else
 			rx_skb->ip_summed = CHECKSUM_NONE;
+
+	if (ei_local->features & FE_HW_VLAN_RX) {
+		if (rx_ring->rxd_info2.TAG)
+			__vlan_hwaccel_put_tag(rx_skb,
+					       htons(ETH_P_8021Q),
+					       rx_ring->rxd_info3.VID);
+	}
 
 #if defined(CONFIG_RA_HW_NAT)  || defined(CONFIG_RA_HW_NAT_MODULE)
 		if (ra_sw_nat_hook_rx) {
@@ -323,24 +333,16 @@ static int rt2880_eth_recv(struct net_device *dev,
 				FOE_TAG_PROTECT_TAIL(rx_skb) = TAG_PROTECT;
 			}
 		}
-#endif
-
-
-	if (ei_local->features & FE_HW_VLAN_RX) {
-		if (rx_ring->rxd_info2.TAG)
-			__vlan_hwaccel_put_tag(rx_skb,
-					       htons(ETH_P_8021Q),
-					       rx_ring->rxd_info3.VID);
-	}
-	
-
-		*(uint32_t *)(rx_skb->head) =*(uint32_t *)(&rx_ring->rxd_info4);
-		skb_hnat_alg(rx_skb) = 0;
-		skb_hnat_magic_tag(rx_skb) = HNAT_MAGIC_TAG;
-		if (skb_hnat_reason(rx_skb) == HIT_BIND_FORCE_TO_CPU) {
-			rx_skb->pkt_type = PACKET_HOST;
+#elif defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
+		if (ra_sw_nat_hook_rx && likely(IS_SPACE_AVAILABLE_HEAD(rx_skb))) {
+			*(uint32_t *)(FOE_INFO_START_ADDR_HEAD(rx_skb)) =
+				*(uint32_t *)&rx_ring->rxd_info4;
+			FOE_MAGIC_TAG_HEAD(rx_skb) = FOE_MAGIC_GE;
+			FOE_TAG_PROTECT_HEAD(rx_skb) = TAG_PROTECT;
+			if (ra_sw_nat_hook_rx(rx_skb) != 1)
+				goto skb_skip;
 		}
-
+#endif
 
 /* ra_sw_nat_hook_rx return 1 --> continue
  * ra_sw_nat_hook_rx return 0 --> FWD & without netif_rx
@@ -369,18 +371,11 @@ static int rt2880_eth_recv(struct net_device *dev,
 						netif_rx(rx_skb);
 				}
 			}
-#if defined(CONFIG_RA_HW_NAT)  || defined(CONFIG_RA_HW_NAT_MODULE)
+#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
 		}
 #endif
 
-		if (rx_ring->rxd_info4.SP == 2) {
-			p_ad->stat.rx_packets++;
-			p_ad->stat.rx_bytes += length;
-		} else {
-			ei_local->stat.rx_packets++;
-			ei_local->stat.rx_bytes += length;
-		}
-
+skb_skip:
 		/* init RX desc. */
 		fe_rx_desc_init(rx_ring, dma_addr);
 		ei_local->netrx_skb_data[0][rx_dma_owner_idx] = new_data;
@@ -696,7 +691,8 @@ static void ei_func_register(struct END_DEVICE *ei_local)
 	}
 
 	/* HW NAT handling */
-#if defined(CONFIG_RA_HW_NAT)  || defined(CONFIG_RA_HW_NAT_MODULE)
+#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE) || \
+    defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
 	if (!(ei_local->features & FE_HW_NAT)) {
 		ra_sw_nat_hook_rx = NULL;
 		ra_sw_nat_hook_tx = NULL;
@@ -1901,6 +1897,7 @@ static int fe_int_enable(struct net_device *dev)
 					 "gsw", NULL))
 			pr_err("fail to request irq\n");
 
+		/* enable switch link change intr */
 		mii_mgr_write(31, 0x7008, 0x1f);
 	}
 
@@ -2055,7 +2052,8 @@ static int fe_int_disable(struct net_device *dev)
 		free_irq(ei_local->irq2, dev);
 	}
 
-	if (ei_local->architecture & RAETH_ESW || ei_local->chip_name == MT7621_FE)
+	if (ei_local->architecture & RAETH_ESW ||
+	    ei_local->chip_name == MT7621_FE)
 		free_irq(ei_local->esw_irq, dev);
 
 	if (ei_local->features & (FE_RSS_4RING | FE_RSS_2RING))

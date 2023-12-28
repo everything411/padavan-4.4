@@ -538,6 +538,8 @@ struct mtk_snfc {
 	struct completion done;
 	struct list_head chips;
 
+	int use_bmt;
+
 	u8 *buffer;
 };
 
@@ -890,6 +892,8 @@ static const snand_flashdev_info gen_snand_FlashTable[] = {
 		0x00000000, 0x0552000A, 0x3F00, 0x0000, "MX35LF2G14AC", 0x00000000},
 	{{0xC2, 0x12}, 2, 128, 128, 2048, 64, 0x00000000, 0x00000000, 0x00000000,
 		0x00000000, 0x0552000A, 0x3F00, 0x0000, "MX35LF1GE4AB", 0x00000000},
+	{{0xC2, 0x14}, 2, 128, 128, 2048, 128, 0x00000000, 0x00000000, 0x00000000,
+		0x00000000, 0x0552000A, 0x3F00, 0x0000, "MX35LF1G24AD", 0x00000000},
 	{{0xC8, 0x21}, 2, 128, 128, 2048, 64, 0x00000000, 0x00000000, 0x00000028,
 		0x00000000, 0x0552000A, 0x3F00, 0x0000, "F50L1G41A", 0x00000000},
 	{{0xC8, 0x01}, 2, 128, 128, 2048, 64, 0x00000000, 0x00000000, 0x00000028,
@@ -2895,7 +2899,7 @@ static int mtk_snand_write_page(struct mtd_info *mtd, struct nand_chip *chip,
 	int mapped_block;
 	struct timeval stimer, etimer;
 
-	if (!snfc->chip_data->use_bmt)
+	if (!snfc->use_bmt)
 		mapped_block = block;
 	else
 		mapped_block = get_mapping_block_index(block);
@@ -2918,7 +2922,7 @@ static int mtk_snand_write_page(struct mtd_info *mtd, struct nand_chip *chip,
 				     (u8 *) buf, local_oob_buf, 0)) {
 		pr_warn("write fail at: 0x%x, page: 0x%x\n",
 				     mapped_block, page_in_block);
-		if (snfc->chip_data->use_bmt) {
+		if (snfc->use_bmt) {
 			if (update_bmt((page_in_block + mapped_block * page_per_block)
 					<< chip->page_shift, UPDATE_WRITE_FAIL,
 					(u8 *) buf, local_oob_buf))
@@ -3264,7 +3268,7 @@ static int mtk_snand_read_page_hwecc(struct mtd_info *mtd,
 	u16 page_in_block = pkCMD->u4RowAddr % page_per_block;
 	int mapped_block;
 
-	if (!snfc->chip_data->use_bmt)
+	if (!snfc->use_bmt)
 		mapped_block = block;
 	else
 		mapped_block = get_mapping_block_index(block);
@@ -3379,7 +3383,7 @@ static int mtk_nand_erase(struct mtd_info *mtd, int page)
 	int mapped_block;
 	int status;
 
-	if (!snfc->chip_data->use_bmt)
+	if (!snfc->use_bmt)
 		mapped_block = block;
 	else
 		mapped_block = get_mapping_block_index(block);
@@ -3388,7 +3392,7 @@ static int mtk_nand_erase(struct mtd_info *mtd, int page)
 				   * mapped_block);
 
 	if (status & NAND_STATUS_FAIL) {
-		if (snfc->chip_data->use_bmt) {
+		if (snfc->use_bmt) {
 			if (update_bmt((page_in_block + mapped_block * page_per_block)
 				<< chip->page_shift, UPDATE_ERASE_FAIL, NULL, NULL))
 				return 0;
@@ -3525,7 +3529,7 @@ static int mtk_snand_write_oob(struct mtd_info *mtd, struct nand_chip *chip,
 	u16 page_in_block = page % page_per_block;
 	int mapped_block;
 
-	if (!snfc->chip_data->use_bmt)
+	if (!snfc->use_bmt)
 		mapped_block = block;
 	else
 		mapped_block = get_mapping_block_index(block);
@@ -3540,7 +3544,7 @@ static int mtk_snand_write_oob(struct mtd_info *mtd, struct nand_chip *chip,
 				   * page_per_block)) {
 		memset(local_oob_buf, 0xFF, mtd->oobsize);
 		mtk_snand_transfer_oob(chip, local_oob_buf);
-		if (snfc->chip_data->use_bmt) {
+		if (snfc->use_bmt) {
 			if (update_bmt((page_in_block + mapped_block * page_per_block)
 					<< chip->page_shift, UPDATE_WRITE_FAIL, NULL,
 					local_oob_buf))
@@ -3579,7 +3583,7 @@ static int mtk_snand_block_markbad(struct mtd_info *mtd, loff_t offset)
 	int block = (int)offset >> chip->phys_erase_shift;
 	int mapped_block;
 
-	if (!snfc->chip_data->use_bmt)
+	if (!snfc->use_bmt)
 		mapped_block = block;
 	else
 		mapped_block = get_mapping_block_index(block);
@@ -3619,7 +3623,7 @@ static int mtk_snand_read_oob(struct mtd_info *mtd, struct nand_chip *chip,
 	u16 page_in_block = page % page_per_block;
 	int mapped_block;
 
-	if (!snfc->chip_data->use_bmt)
+	if (!snfc->use_bmt)
 		mapped_block = block;
 	else
 		mapped_block = get_mapping_block_index(block);
@@ -3671,7 +3675,7 @@ static int mtk_snand_block_bad(struct mtd_info *mtd, loff_t ofs)
 	int mapped_block;
 	int ret;
 
-	if (!snfc->chip_data->use_bmt)
+	if (!snfc->use_bmt)
 		mapped_block = block;
 	else
 		mapped_block = get_mapping_block_index(block);
@@ -3680,7 +3684,7 @@ static int mtk_snand_block_bad(struct mtd_info *mtd, loff_t ofs)
 				    << chip->phys_erase_shift);
 
 	if (ret) {
-		if (snfc->chip_data->use_bmt) {
+		if (snfc->use_bmt) {
 			pr_debug("Unmapped bad block: 0x%x\n", mapped_block);
 			if (update_bmt(mapped_block << chip->phys_erase_shift,
 				       UPDATE_UNMAPPED_BLOCK, NULL, NULL)) {
@@ -4085,17 +4089,24 @@ static int mtk_snand_probe(struct platform_device *pdev)
 		goto out;
 	}
 
+	snfc->use_bmt = snfc->chip_data->use_bmt;
+
+	if (of_property_read_bool(np, "disable-bmt"))
+		snfc->use_bmt = 0;
+
+	if (snfc->use_bmt) {
 	#if defined(MTK_COMBO_NAND_SUPPORT)
-	nand_chip->chipsize -= (PART_SIZE_BMTPOOL);
+		nand_chip->chipsize -= (PART_SIZE_BMTPOOL);
 	#else
-	nand_chip->chipsize -= (BMT_POOL_SIZE) << nand_chip->phys_erase_shift;
+		nand_chip->chipsize -= (BMT_POOL_SIZE) << nand_chip->phys_erase_shift;
 	#endif
+	}
 	mtd->size = nand_chip->chipsize;
 
 	/* config read empty threshold for MTK ECC */
 	snfi_writel(snfc, 1, NFI_EMPTY_THRESH);
 
-	if (snfc->chip_data->use_bmt)
+	if (snfc->use_bmt) {
 		if (init_bmt(host,
 			1 << (nand_chip->chip_shift - nand_chip->phys_erase_shift),
 			(nand_chip->chipsize >> nand_chip->phys_erase_shift) - 2) != 0) {
@@ -4103,7 +4114,8 @@ static int mtk_snand_probe(struct platform_device *pdev)
 			return 0;
 		}
 
-	nand_chip->chipsize -= (PMT_POOL_SIZE) << nand_chip->phys_erase_shift;
+		nand_chip->chipsize -= (PMT_POOL_SIZE) << nand_chip->phys_erase_shift;
+	}
 	mtd->size = nand_chip->chipsize;
 
 	np = of_get_next_available_child(pdev->dev.of_node, NULL);

@@ -22,8 +22,11 @@
 #include <net/ra_nat.h>
 
 static int xfrm_output2(struct net *net, struct sock *sk, struct sk_buff *skb);
-
+#if defined (CONFIG_RALINK_HWCRYPTO) || defined (CONFIG_RALINK_HWCRYPTO_MODULE)
+int xfrm_skb_check_space(struct sk_buff *skb)
+#else
 static int xfrm_skb_check_space(struct sk_buff *skb)
+#endif
 {
 	struct dst_entry *dst = skb_dst(skb);
 	int nhead = dst->header_len + LL_RESERVED_SPACE(dst->dev)
@@ -107,15 +110,27 @@ static int xfrm_output_one(struct sk_buff *skb, int err)
 		skb_dst_force(skb);
 
 		err = x->type->output(x, skb);
+#if defined (CONFIG_RALINK_HWCRYPTO) || defined (CONFIG_RALINK_HWCRYPTO_MODULE)
+		if (skb->protocol == htons(ETH_P_IP))
+		{	
+			if (err == 1)
+				return err;
+		}		
+#endif	
 		if (err == -EINPROGRESS)
 			goto out;
 
 resume:
+#if defined (CONFIG_RALINK_HWCRYPTO) || defined (CONFIG_RALINK_HWCRYPTO_MODULE)
+		if (skb->protocol == htons(ETH_P_IPV6))
+#else	
+		{
 		if (err) {
 			XFRM_INC_STATS(net, LINUX_MIB_XFRMOUTSTATEPROTOERROR);
 			goto error_nolock;
 		}
-
+		}
+#endif
 		dst = skb_dst_pop(skb);
 		if (!dst) {
 			XFRM_INC_STATS(net, LINUX_MIB_XFRMOUTERROR);
@@ -159,7 +174,10 @@ int xfrm_output_resume(struct sk_buff *skb, int err)
 
 	if (err == -EINPROGRESS)
 		err = 0;
-
+#if defined (CONFIG_RALINK_HWCRYPTO) || defined (CONFIG_RALINK_HWCRYPTO_MODULE)
+	if (skb->protocol = htons(ETH_P_IP))
+		return 0;
+#endif	
 out:
 	return err;
 }

@@ -4,25 +4,34 @@
  * Author: Landen Chao <landen.chao@mediatek.com>
  */
 
+#include <linux/of_device.h>
+//#include <net/netfilter/nf_flow_table.h>
+#include <net/netfilter/nf_hnat.h>
 #include "hnat.h"
 
-void hnat_dsa_fill_stag(const struct net_device *netdev,
-			struct foe_entry *entry,
-			struct hnat_hw_path *hw_path,
-			u16 eth_proto,
-			int mape)
+u32 hnat_dsa_fill_stag(const struct net_device *netdev,
+		       struct foe_entry *entry,
+		       //struct flow_offload_hw_path *hw_path,
+		       struct hnat_hw_path *hw_path,
+		       u16 eth_proto,
+		       int mape)
 {
 	const struct net_device *ndev;
 	const unsigned int *port_reg;
 	int port_index;
 	u16 sp_tag;
 
+	/*if (hw_path->flags & FLOW_OFFLOAD_PATH_VLAN)
+		ndev = hw_path->dev;*/
 	if (hw_path->flags & HNAT_PATH_VLAN)
 		ndev = hw_path->real_dev;
 	else
 		ndev = netdev;
 
 	port_reg = of_get_property(ndev->dev.of_node, "reg", NULL);
+	if (unlikely(!port_reg))
+		return -EINVAL;
+
 	port_index = be32_to_cpup(port_reg);
 	sp_tag = BIT(port_index);
 
@@ -35,7 +44,8 @@ void hnat_dsa_fill_stag(const struct net_device *netdev,
 
 	switch (eth_proto) {
 	case ETH_P_IP:
-		if (entry->ipv4_hnapt.bfib1.pkt_type == IPV4_DSLITE)
+		if (entry->ipv4_hnapt.bfib1.pkt_type == IPV4_DSLITE
+			|| (entry->ipv4_hnapt.bfib1.pkt_type == IPV4_MAP_E))
 			entry->ipv4_dslite.etype = sp_tag;
 		else
 			entry->ipv4_hnapt.etype = sp_tag;
@@ -52,4 +62,6 @@ void hnat_dsa_fill_stag(const struct net_device *netdev,
 	default:
 		pr_info("DSA + HNAT unsupport protocol\n");
 	}
+
+	return port_index;
 }

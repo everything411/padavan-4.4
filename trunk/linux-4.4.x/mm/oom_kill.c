@@ -355,7 +355,7 @@ static void dump_tasks(struct mem_cgroup *memcg, const nodemask_t *nodemask)
 	struct task_struct *p;
 	struct task_struct *task;
 
-	pr_info("[ pid ]   uid  tgid total_vm      rss nr_ptes nr_pmds swapents oom_score_adj name\n");
+	pr_warning("[ pid ]   uid  tgid total_vm      rss nr_ptes nr_pmds swapents oom_score_adj name\n");
 	rcu_read_lock();
 	for_each_process(p) {
 		if (oom_unkillable_task(p, memcg, nodemask))
@@ -371,7 +371,7 @@ static void dump_tasks(struct mem_cgroup *memcg, const nodemask_t *nodemask)
 			continue;
 		}
 
-		pr_info("[%5d] %5d %5d %8lu %8lu %7ld %7ld %8lu         %5hd %s\n",
+		pr_warning("[%5d] %5d %5d %8lu %8lu %7ld %7ld %8lu         %5hd %s\n",
 			task->pid, from_kuid(&init_user_ns, task_uid(task)),
 			task->tgid, task->mm->total_vm, get_mm_rss(task->mm),
 			atomic_long_read(&task->mm->nr_ptes),
@@ -668,6 +668,16 @@ int unregister_oom_notifier(struct notifier_block *nb)
 }
 EXPORT_SYMBOL_GPL(unregister_oom_notifier);
 
+/* NOTE(Nelson): Add OOM debug logs for ETH/WIFI debug */
+#ifdef	CONFIG_ETH_WIFI_OOM_DEBUG
+#ifdef	CONFIG_RAETH
+extern void raether_dump_pdma_info(void);
+#endif	/* CONFIG_RAETH */
+#ifdef	CONFIG_CHIP_MT7615E
+extern void wifi_dump_info(void);
+#endif	/* CONFIG_CHIP_MT7615E */
+#endif	/* CONFIG_ETH_WIFI_OOM_DEBUG */
+
 /**
  * out_of_memory - kill the "best" process when we run out of memory
  * @oc: pointer to struct oom_control
@@ -687,6 +697,16 @@ bool out_of_memory(struct oom_control *oc)
 
 	if (oom_killer_disabled)
 		return false;
+
+	/* NOTE(Nelson): Add OOM debug logs for ETH/WIFI debug */
+#ifdef	CONFIG_ETH_WIFI_OOM_DEBUG
+#ifdef	CONFIG_RAETH
+	raether_dump_pdma_info();
+#endif	/* CONFIG_RAETH */
+#ifdef	CONFIG_CHIP_MT7615E
+	wifi_dump_info();
+#endif	/* CONFIG_CHIP_MT7615E */
+#endif	/* CONFIG_ETH_WIFI_OOM_DEBUG */
 
 	blocking_notifier_call_chain(&oom_notify_list, 0, &freed);
 	if (freed > 0)

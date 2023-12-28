@@ -14,6 +14,7 @@
 #include <linux/clk.h>
 #include <linux/module.h>
 #include <linux/iopoll.h>
+#include <linux/bitops.h>
 #include <linux/of.h>
 #include <linux/of_platform.h>
 #include <linux/mutex.h>
@@ -44,7 +45,6 @@ int mtk_ecc_correct_check(struct mtd_info *mtd, struct mtk_ecc *ecc,
 {
 	struct nand_chip *nand = mtd_to_nand(mtd);
 	struct mtk_nfc *nfc = nand_get_controller_data(nand);
-	struct device *dev = ecc->dev;
 	u32 error_byte_pos, error_bit_pos_in_byte;
 	u32 error_locations, error_bit_loc;
 	u32 num_error_bits;
@@ -56,11 +56,8 @@ int mtk_ecc_correct_check(struct mtd_info *mtd, struct mtk_ecc *ecc,
 	if (!num_error_bits)
 		return 0;
 
-	if (num_error_bits == ecc->caps->err_mask) {
-		mtd->ecc_stats.failed++;
-		dev_warn(dev, "Uncorrectable ecc error\n");
+	if (num_error_bits == ecc->caps->err_mask)
 		return -1;
-	}
 
 	for (i = 0; i < num_error_bits; i++) {
 		error_locations = readl(ecc->regs + ECC_DECEL(i / 2));
@@ -80,8 +77,6 @@ int mtk_ecc_correct_check(struct mtd_info *mtd, struct mtk_ecc *ecc,
 
 		bitflips++;
 	}
-
-	mtd->ecc_stats.corrected += bitflips;
 
 	return bitflips;
 }
@@ -224,6 +219,135 @@ int mtk_ecc_init(struct mtk_nfc *nfc, struct mtk_ecc *ecc,
 	return 0;
 }
 EXPORT_SYMBOL(mtk_ecc_init);
+
+/* Empty page bitflip fixup */
+static int mtk_ecc_check_bitflips(const void *buf, size_t len, u32 bitflips,
+				  u32 bitflips_threshold)
+{
+	const u8 *buf8 = buf;
+	const ulong *bufl;
+	ulong d;
+	u32 weight;
+
+	while (len && ((uintptr_t)buf8) % sizeof(ulong)) {
+		weight = hweight8(*buf8);
+		bitflips += BITS_PER_BYTE - weight;
+		buf8++;
+		len--;
+
+		if (unlikely(bitflips > bitflips_threshold))
+			return -EBADMSG;
+	}
+
+	bufl = (const ulong *)buf8;
+	while (len >= sizeof(ulong)) {
+		d = *bufl;
+
+		if (d != ~0UL) {
+			weight = hweight_long(d);
+			bitflips += BITS_PER_LONG - weight;
+		}
+
+		bufl++;
+		len -= sizeof(ulong);
+
+		if (unlikely(bitflips > bitflips_threshold))
+			return -EBADMSG;
+	}
+
+	buf8 = (const u8 *)bufl;
+	while (len) {
+		weight = hweight8(*buf8);
+		bitflips += BITS_PER_BYTE - weight;
+		buf8++;
+		len--;
+
+		if (unlikely(bitflips > bitflips_threshold))
+			return -EBADMSG;
+	}
+
+	return bitflips;
+}
+
+static int mtk_ecc_check_ecc_bitflips(const void *buf, u32 bits, u32 bitflips,
+				      u32 bitflips_threshold)
+{
+	u32 len, i;
+	int rc;
+	u8 b;
+
+	len = bits >> 3;
+	bits &= 7;
+
+	rc = mtk_ecc_check_bitflips(buf, len, bitflips, bitflips_threshold);
+	if (!bits || rc < 0)
+		return rc;
+
+	bitflips = rc;
+
+	/* We want a precise count of bits */
+	b = ((const u8 *)buf)[len];
+	for (i = 0; i < bits; i++) {
+		if (!(b & BIT(i)))
+			bitflips++;
+	}
+
+	if (unlikely(bitflips > bitflips_threshold))
+		return -EBADMSG;
+
+	return bitflips;
+}
+
+static void mtk_ecc_reset_ecc_bits(void *buf, u32 bits)
+{
+	u32 len;
+
+	len = bits >> 3;
+	bits &= 7;
+
+	memset(buf, 0xff, len);
+
+	/* Only reset bits protected by ECC to 1 */
+	if (bits)
+		((u8 *)buf)[len] |= GENMASK(bits - 1, 0);
+}
+
+int mtk_ecc_fixup_empty_step(struct mtk_ecc *ecc, struct nand_chip *chip,
+			     u32 fdm_size, void *buf, void *oob, void *eccp)
+{
+	u32 ecc_bits = chip->ecc.strength * ecc->caps->parity_bits;
+	int bitflips = 0;
+
+	/*
+	 * Check whether DATA + FDM + ECC of a sector contains correctable
+	 * bitflips
+	 */
+	bitflips = mtk_ecc_check_bitflips(buf, chip->ecc.size, bitflips,
+					  chip->ecc.strength);
+	if (bitflips < 0)
+		return -EBADMSG;
+
+	bitflips = mtk_ecc_check_bitflips(oob, fdm_size,
+					  bitflips, chip->ecc.strength);
+	if (bitflips < 0)
+		return -EBADMSG;
+
+	bitflips = mtk_ecc_check_ecc_bitflips(eccp, ecc_bits,
+					      bitflips, chip->ecc.strength);
+	if (bitflips < 0)
+		return -EBADMSG;
+
+	if (!bitflips)
+		return 0;
+
+	/* Reset the data of this sector to 0xff */
+	memset(buf, 0xff, chip->ecc.size);
+	memset(oob, 0xff, fdm_size);
+	mtk_ecc_reset_ecc_bits(eccp, ecc_bits);
+
+	return bitflips;
+}
+EXPORT_SYMBOL(mtk_ecc_fixup_empty_step);
 
 static const struct mtk_ecc_caps mtk_ecc_caps_mt7621 = {
 	.err_mask = 0xf,

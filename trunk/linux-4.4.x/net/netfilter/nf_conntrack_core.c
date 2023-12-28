@@ -1711,6 +1711,9 @@ int nf_conntrack_init_start(void)
 		 * we use the old value of 8 to avoid reducing the max.
 		 * entries. */
 		max_factor = 4;
+#if defined(CONFIG_NETFILTER_XT_TARGET_FULLCONENAT) || defined(CONFIG_BCM_KF_NETFILTER)
+		nf_conntrack_htable_size = 16384;
+#endif
 	}
 	nf_conntrack_max = max_factor * nf_conntrack_htable_size;
 
@@ -1869,6 +1872,7 @@ int nf_conntrack_init_net(struct net *net)
 	ret = nf_conntrack_proto_pernet_init(net);
 	if (ret < 0)
 		goto err_proto;
+
 #ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
 	ATOMIC_INIT_NOTIFIER_HEAD(&net->ct.nf_conntrack_chain);
 #endif

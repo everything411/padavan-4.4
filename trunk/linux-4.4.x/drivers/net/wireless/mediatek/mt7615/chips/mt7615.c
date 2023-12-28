@@ -590,7 +590,7 @@ void mt7615_apply_cal_data(RTMP_ADAPTER *pAd, MT_SWITCH_CHANNEL_CFG SwChCfg)
 		} else
 			mt7615_apply_dcoc(pAd, SwChCfg, 0, FALSE);
 	} else {
-		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE,
+		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR,
 				 ("%s() : eeprom 0x52 bit 1 is 0, do runtime cal , skip RX reload\n", __func__));
 	}
 
@@ -624,7 +624,7 @@ void mt7615_apply_cal_data(RTMP_ADAPTER *pAd, MT_SWITCH_CHANNEL_CFG SwChCfg)
 		} else
 			mt7615_apply_dpd(pAd, SwChCfg, 0, FALSE);
 	} else {
-		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE,
+		MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_ERROR,
 				 ("%s() : eeprom 0x52 bit 0 is 0, do runtime cal , skip TX reload\n", __func__));
 	}
 }
@@ -2761,6 +2761,9 @@ static VOID mt7615_chipCap_init(RTMP_ADAPTER *pAd, BOOLEAN b11nOnly, BOOLEAN bTh
 	MT7615_ChipCap.txd_type = TXD_V1;
 	MT7615_ChipCap.ba_range = mt7615_ba_range;
 	MT7615_ChipCap.tx_delay_support = FALSE;
+#ifdef OCE_SUPPORT
+	MT7615_ChipCap.FdFrameFwOffloadEnabled = TRUE;
+#endif /* OCE_SUPPORT */
 }
 
 

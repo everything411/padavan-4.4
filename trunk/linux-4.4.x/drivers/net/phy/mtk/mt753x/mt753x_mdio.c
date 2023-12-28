@@ -320,8 +320,114 @@ static void mt753x_load_port_cfg(struct gsw_mt753x *gsw)
 			}
 		}
 
+		port_cfg->ssc_on = of_property_read_bool(port_cfg->np,
+							 "mediatek,ssc-on");
 		port_cfg->enabled = 1;
 	}
+}
+
+void mt753x_tr_write(struct gsw_mt753x *gsw, int addr, u8 ch, u8 node, u8 daddr,
+		     u32 data)
+{
+	ktime_t timeout;
+	u32 timeout_us;
+	u32 val;
+
+	if (addr < MT753X_NUM_PHYS)
+		addr = (gsw->phy_base + addr) & MT753X_SMI_ADDR_MASK;
+
+	gsw->mii_write(gsw, addr, PHY_CL22_PAGE_CTRL, PHY_TR_PAGE);
+
+	val = gsw->mii_read(gsw, addr, PHY_TR_CTRL);
+
+	timeout_us = 100000;
+	timeout = ktime_add_us(ktime_get(), timeout_us);
+	while (1) {
+		val = gsw->mii_read(gsw, addr, PHY_TR_CTRL);
+
+		if (!!(val & PHY_TR_PKT_XMT_STA))
+			break;
+
+		if (ktime_compare(ktime_get(), timeout) > 0)
+			goto out;
+	}
+
+	gsw->mii_write(gsw, addr, PHY_TR_LOW_DATA, PHY_TR_LOW_VAL(data));
+	gsw->mii_write(gsw, addr, PHY_TR_HIGH_DATA, PHY_TR_HIGH_VAL(data));
+	val = PHY_TR_PKT_XMT_STA | (PHY_TR_WRITE << PHY_TR_WR_S) |
+	      (ch << PHY_TR_CH_ADDR_S) | (node << PHY_TR_NODE_ADDR_S) |
+	      (daddr << PHY_TR_DATA_ADDR_S);
+	gsw->mii_write(gsw, addr, PHY_TR_CTRL, val);
+
+	timeout_us = 100000;
+	timeout = ktime_add_us(ktime_get(), timeout_us);
+	while (1) {
+		val = gsw->mii_read(gsw, addr, PHY_TR_CTRL);
+
+		if (!!(val & PHY_TR_PKT_XMT_STA))
+			break;
+
+		if (ktime_compare(ktime_get(), timeout) > 0)
+			goto out;
+	}
+out:
+	gsw->mii_write(gsw, addr, PHY_CL22_PAGE_CTRL, 0);
+}
+
+int mt753x_tr_read(struct gsw_mt753x *gsw, int addr, u8 ch, u8 node, u8 daddr)
+{
+	ktime_t timeout;
+	u32 timeout_us;
+	u32 val;
+	u8 val_h;
+
+	if (addr < MT753X_NUM_PHYS)
+		addr = (gsw->phy_base + addr) & MT753X_SMI_ADDR_MASK;
+
+	gsw->mii_write(gsw, addr, PHY_CL22_PAGE_CTRL, PHY_TR_PAGE);
+
+	val = gsw->mii_read(gsw, addr, PHY_TR_CTRL);
+
+	timeout_us = 100000;
+	timeout = ktime_add_us(ktime_get(), timeout_us);
+	while (1) {
+		val = gsw->mii_read(gsw, addr, PHY_TR_CTRL);
+
+		if (!!(val & PHY_TR_PKT_XMT_STA))
+			break;
+
+		if (ktime_compare(ktime_get(), timeout) > 0) {
+			gsw->mii_write(gsw, addr, PHY_CL22_PAGE_CTRL, 0);
+			return -ETIMEDOUT;
+		}
+	}
+
+	val = PHY_TR_PKT_XMT_STA | (PHY_TR_READ << PHY_TR_WR_S) |
+	      (ch << PHY_TR_CH_ADDR_S) | (node << PHY_TR_NODE_ADDR_S) |
+	      (daddr << PHY_TR_DATA_ADDR_S);
+	gsw->mii_write(gsw, addr, PHY_TR_CTRL, val);
+
+	timeout_us = 100000;
+	timeout = ktime_add_us(ktime_get(), timeout_us);
+	while (1) {
+		val = gsw->mii_read(gsw, addr, PHY_TR_CTRL);
+
+		if (!!(val & PHY_TR_PKT_XMT_STA))
+			break;
+
+		if (ktime_compare(ktime_get(), timeout) > 0) {
+			gsw->mii_write(gsw, addr, PHY_CL22_PAGE_CTRL, 0);
+			return -ETIMEDOUT;
+		}
+	}
+
+	val = gsw->mii_read(gsw, addr, PHY_TR_LOW_DATA);
+	val_h = gsw->mii_read(gsw, addr, PHY_TR_HIGH_DATA);
+	val |= (val_h << 16);
+
+	gsw->mii_write(gsw, addr, PHY_CL22_PAGE_CTRL, 0);
+
+	return val;
 }
 
 static void mt753x_add_gsw(struct gsw_mt753x *gsw)

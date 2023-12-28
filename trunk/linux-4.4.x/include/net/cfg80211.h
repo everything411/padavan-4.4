@@ -75,13 +75,21 @@ struct wiphy;
  *
  * @IEEE80211_BAND_2GHZ: 2.4GHz ISM band
  * @IEEE80211_BAND_5GHZ: around 5GHz band (4.9-5.7)
+#ifdef CONFIG_BCM_KF_NL80211_6G_BAND_SUPPORT
+ * @IEEE80211_BAND_60GHZ: around 60 GHz band (58.32 - 69.12 GHz)
+ * @IEEE80211_BAND_6GHZ: around 6 GHz band (5.9 - 7.2 GHz)
+#else
  * @IEEE80211_BAND_60GHZ: around 60 GHz band (58.32 - 64.80 GHz)
+#endif
  * @IEEE80211_NUM_BANDS: number of defined bands
  */
 enum ieee80211_band {
 	IEEE80211_BAND_2GHZ = NL80211_BAND_2GHZ,
 	IEEE80211_BAND_5GHZ = NL80211_BAND_5GHZ,
 	IEEE80211_BAND_60GHZ = NL80211_BAND_60GHZ,
+#ifdef CONFIG_BCM_KF_NL80211_6G_BAND_SUPPORT
+	IEEE80211_BAND_6GHZ = NL80211_BAND_6GHZ,
+#endif /* CONFIG_BCM_KF_NLG80211_6G_BAND_SUPPORT */
 
 	/* keep last */
 	IEEE80211_NUM_BANDS
@@ -1723,11 +1731,24 @@ struct cfg80211_auth_request {
  * @ASSOC_REQ_DISABLE_HT:  Disable HT (802.11n)
  * @ASSOC_REQ_DISABLE_VHT:  Disable VHT
  * @ASSOC_REQ_USE_RRM: Declare RRM capability in this association
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+ * @CONNECT_REQ_EXTERNAL_AUTH_SUPPORT: User space indicates external
+ *	authentication capability. Drivers can offload authentication to
+ *	userspace if this flag is set. Only applicable for cfg80211_connect()
+ *	request (connect callback).
+#endif
  */
 enum cfg80211_assoc_req_flags {
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+	ASSOC_REQ_DISABLE_HT			= BIT(0),
+	ASSOC_REQ_DISABLE_VHT			= BIT(1),
+	ASSOC_REQ_USE_RRM			= BIT(2),
+	CONNECT_REQ_EXTERNAL_AUTH_SUPPORT	= BIT(3),
+#else
 	ASSOC_REQ_DISABLE_HT		= BIT(0),
 	ASSOC_REQ_DISABLE_VHT		= BIT(1),
 	ASSOC_REQ_USE_RRM		= BIT(2),
+#endif
 };
 
 /**
@@ -2221,6 +2242,35 @@ struct cfg80211_qos_map {
 	struct cfg80211_dscp_range up[8];
 };
 
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+/**
+ * struct cfg80211_external_auth_params - Trigger External authentication.
+ *
+ * Commonly used across the external auth request and event interfaces.
+ *
+ * @action: action type / trigger for external authentication. Only significant
+ *	for the authentication request event interface (driver to user space).
+ * @bssid: BSSID of the peer with which the authentication has
+ *	to happen. Used by both the authentication request event and
+ *	authentication response command interface.
+ * @ssid: SSID of the AP.  Used by both the authentication request event and
+ *	authentication response command interface.
+ * @key_mgmt_suite: AKM suite of the respective authentication. Used by the
+ *	authentication request event interface.
+ * @status: status code, %WLAN_STATUS_SUCCESS for successful authentication,
+ *	use %WLAN_STATUS_UNSPECIFIED_FAILURE if user space cannot give you
+ *	the real status code for failures. Used only for the authentication
+ *	response command interface (user space to driver).
+ */
+struct cfg80211_external_auth_params {
+	enum nl80211_external_auth_action action;
+	u8 bssid[ETH_ALEN] __aligned(2);
+	struct cfg80211_ssid ssid;
+	unsigned int key_mgmt_suite;
+	u16 status;
+};
+#endif
+
 /**
  * struct cfg80211_ops - backend description for wireless configuration
  *
@@ -2492,6 +2542,11 @@ struct cfg80211_qos_map {
  *	and returning to the base channel for communication with the AP.
  * @tdls_cancel_channel_switch: Stop channel-switching with a TDLS peer. Both
  *	peers must be on the base channel when the call completes.
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+ *
+ * @external_auth: indicates result of offloaded authentication processing from
+ *     user space
+#endif
  */
 struct cfg80211_ops {
 	int	(*suspend)(struct wiphy *wiphy, struct cfg80211_wowlan *wow);
@@ -2756,6 +2811,10 @@ struct cfg80211_ops {
 	void	(*tdls_cancel_channel_switch)(struct wiphy *wiphy,
 					      struct net_device *dev,
 					      const u8 *addr);
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+	int     (*external_auth)(struct wiphy *wiphy, struct net_device *dev,
+				 struct cfg80211_external_auth_params *params);
+#endif
 };
 
 /*
@@ -5339,6 +5398,19 @@ wiphy_ext_feature_isset(struct wiphy *wiphy,
 
 /* ethtool helper */
 void cfg80211_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info);
+
+#ifdef CONFIG_BCM_KF_CFG80211_BACKPORT
+/**
+ * cfg80211_external_auth_request - userspace request for authentication
+ * @netdev: network device
+ * @params: External authentication parameters
+ * @gfp: allocation flags
+ * Returns: 0 on success, < 0 on error
+ */
+int cfg80211_external_auth_request(struct net_device *netdev,
+				   struct cfg80211_external_auth_params *params,
+				   gfp_t gfp);
+#endif
 
 /* Logging, debugging and troubleshooting/diagnostic helpers. */
 

@@ -358,7 +358,7 @@
 
 		interrupt-parent = <&gic>;
 		interrupts = <GIC_SHARED 20 IRQ_TYPE_LEVEL_HIGH>;
-		
+
 		pinctrl-names = "default";
 		pinctrl-0 = <&sdhci_pins>;
 	};
@@ -452,7 +452,7 @@
 		u2port0: usb-phy@0x1e1d0800 {
 			reg = <0x1e1d0800 0x00000100>;
 			#phy-cells = <1>;
-		clocks = <&sysclock125M>;
+			clocks = <&sysclock125M>;
 			clock-names = "ref";
 		};
 

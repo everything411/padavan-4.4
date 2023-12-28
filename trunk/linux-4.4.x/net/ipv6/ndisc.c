@@ -491,7 +491,6 @@ void ndisc_send_na(struct net_device *dev, const struct in6_addr *daddr,
 	struct nd_msg *msg;
 	int optlen = 0;
 
-    
 	/* for anycast or proxy, solicited_addr != src_addr */
 	ifp = ipv6_get_ifaddr(dev_net(dev), solicited_addr, dev, 1);
 	if (ifp) {
@@ -531,6 +530,7 @@ void ndisc_send_na(struct net_device *dev, const struct in6_addr *daddr,
 	if (inc_opt)
 		ndisc_fill_addr_option(skb, ND_OPT_TARGET_LL_ADDR,
 				       dev->dev_addr);
+
 
 	ndisc_send_skb(skb, daddr, src_addr);
 }
@@ -580,6 +580,7 @@ void ndisc_send_ns(struct net_device *dev, const struct in6_addr *solicit,
 	skb = ndisc_alloc_skb(dev, sizeof(*msg) + optlen);
 	if (!skb)
 		return;
+
 	msg = (struct nd_msg *)skb_put(skb, sizeof(*msg));
 	*msg = (struct nd_msg) {
 		.icmph = {
@@ -791,7 +792,6 @@ have_ifp:
 
 		idev = ifp->idev;
 	} else {
-
 		struct net *net = dev_net(dev);
 
 		/* perhaps an address on the master device */

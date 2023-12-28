@@ -385,11 +385,11 @@ static NDIS_STATUS match_index_by_chipname(IN RTMP_STRING *l1profile_data,
 		sprintf(key, "INDEX%d", if_idx);
 		if (RTMPGetKeyParameter(key, tmpbuf, MAX_PARAM_BUFFER_SIZE, l1profile_data, TRUE)) {
 			if (strncmp(tmpbuf, chipName, strlen(chipName)) == 0) {
-				MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF,
+				MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_INFO,
 						("%s found as %s\n", chipName, key));
 
 				if (is_dup_key(key)) {	/* There might be not only single entry for one chip */
-					MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF,
+					MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_TRACE,
 						("%s for %s occupied, next\n", key, chipName));
 				} else {
 					strncpy(l1profile[get_dev_config_idx(pAd)].profile_index,
@@ -398,13 +398,13 @@ static NDIS_STATUS match_index_by_chipname(IN RTMP_STRING *l1profile_data,
 					if_idx = MAX_L1PROFILE_INDEX;	/* found, intend to leave */
 				}
 			} else {
-				MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF,
+				MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_TRACE,
 						("%s mismatch with %s as %s\n", chipName, tmpbuf, key));
 			}
 
 			if_idx++;
 		} else {
-			MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%s not found, dismissed.\n", key));
+			MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("%s not found, dismissed.\n", key));
 			if_idx = MAX_L1PROFILE_INDEX;	/* hit maximum avalable index, intend to leave */
 		}
 	}
@@ -429,10 +429,10 @@ static NDIS_STATUS l1get_profile_index(IN RTMP_STRING *l1profile_data, IN RTMP_A
 		strncat(chipName, "A", 9);
 
 	if (match_index_by_chipname(l1profile_data, pAd, chipName) == NDIS_STATUS_SUCCESS) {
-		MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("[%d]%s found by chip\n", dev_idx, chipName));
+		MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("[%d]%s found by chip\n", dev_idx, chipName));
 	} else {
 		retVal = NDIS_STATUS_FAILURE;
-		MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("[%d]%s not found, keep default\n", dev_idx, chipName));
+		MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_WARN, ("[%d]%s not found, keep default\n", dev_idx, chipName));
 	}
 
 	os_free_mem(tmpbuf);
@@ -1107,9 +1107,8 @@ void announce_802_3_packet(
 			RtmpOsPktProtocolAssign(pRxPkt);
 			RtmpOsPktNatMagicTag(pRxPkt);
 
-			if (ra_sw_nat_hook_rx(pRxPkt)) {
+			if (ra_sw_nat_hook_rx(pRxPkt))
 				RtmpOsPktRcvHandle(pRxPkt);
-			}
 
 			return;
 		}
@@ -1336,7 +1335,7 @@ void STA_MonPktSend(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk, UCHAR DevIdx)
 	if (sniffer_type == RADIOTAP_TYPE) {
 		if (pRxBlk->DataSize + sizeof(struct mtk_radiotap_header) > pAd->monitor_ctrl[DevIdx].FilterSize) {
 			MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_ERROR,
-					 ("%s : Size is too large! (%d)\n", __func__,
+					 ("%s : Size is too large! (%ld)\n", __func__,
 					  pRxBlk->DataSize + sizeof(struct mtk_radiotap_header)));
 			goto err_free_sk_buff;
 		}
@@ -1345,7 +1344,7 @@ void STA_MonPktSend(RTMP_ADAPTER *pAd, RX_BLK *pRxBlk, UCHAR DevIdx)
 	if (sniffer_type == PRISM_TYPE) {
 		if (pRxBlk->DataSize + sizeof(wlan_ng_prism2_header) > RX_BUFFER_AGGRESIZE) {
 			MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_ERROR,
-					 ("%s : Size is too large! (%d)\n", __func__,
+					 ("%s : Size is too large! (%ld)\n", __func__,
 					  pRxBlk->DataSize + sizeof(wlan_ng_prism2_header)));
 			goto err_free_sk_buff;
 		}
@@ -1691,9 +1690,7 @@ INT RTMP_AP_IoctlPrepare(RTMP_ADAPTER *pAd, VOID *pCB)
 	POS_COOKIE pObj;
 	USHORT index;
 	INT	Status = NDIS_STATUS_SUCCESS;
-#ifdef CONFIG_APSTA_MIXED_SUPPORT
-	INT cmd = 0xff;
-#endif /* CONFIG_APSTA_MIXED_SUPPORT */
+
 	pObj = (POS_COOKIE) pAd->OS_Cookie;
 
 	if ((pConfig->priv_flags == INT_MAIN) && !RTMP_TEST_FLAG(pAd, fRTMP_ADAPTER_INTERRUPT_REGISTER_TO_OS)) {
@@ -1905,8 +1902,10 @@ wf_drv_tbl.wf_fwd_set_bridge_hook = NULL;
 }
 
 #if defined(CONFIG_WIFI_PKT_FWD) || defined(CONFIG_WIFI_PKT_FWD_MODULE)
+#ifndef MT76XX_COMBO_DUAL_DRIVER_SUPPORT
 EXPORT_SYMBOL(wifi_fwd_register);
 EXPORT_SYMBOL(wifi_fwd_unregister);
+#endif /* MT76XX_COMBO_DUAL_DRIVER_SUPPORT */
 #endif
 
 #endif

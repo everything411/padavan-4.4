@@ -23,8 +23,12 @@
 
 #define MTK_NAME		"mtk-nand"
 
-static int mtk_nfc_do_read_page_hwecc(struct mtd_info *mtd,
-	struct nand_chip *chip, uint8_t *buf, int page);
+static bool mtk_nfc_check_empty_page_ecc(struct mtd_info *mtd,
+					 struct nand_chip *chip,
+					 const uint8_t *buf);
+
+static int mtk_nfc_do_read_page(struct mtd_info *mtd, struct nand_chip *chip,
+				uint8_t *buf, int page, int ecc_on);
 
 static int mtk_nfc_page_erase_write(struct mtd_info *mtd,
 	struct nand_chip *chip, const uint8_t *buf, const uint8_t *oob,
@@ -564,55 +568,74 @@ static int mtk_nfc_write_oob_raw(struct mtd_info *mtd, struct nand_chip *chip,
 	return ret & NAND_STATUS_FAIL ? -EIO : 0;
 }
 
-static int mtk_nfc_write_oob_compat_check(struct mtd_info *mtd,
+static int mtk_nfc_write_oob_jffs2_fixup(struct mtd_info *mtd,
 	struct nand_chip *chip, int page)
 {
 	struct mtk_nfc *nfc = nand_get_controller_data(chip);
-	int i, j, oobsame = 1;
-	u8 *oob_poi, *oob_flash;
+	struct device *dev = nfc->dev;
+	int ret, pages_per_block;
+	bool empty_page = false;
+
+	/*
+	 * only do this for first page of a block
+	 * (i.e. the page with JFFS2 clean marker)
+	 */
+	pages_per_block = mtd->erasesize / mtd->writesize;
+	if (page % pages_per_block)
+		return 0;
 
 	/* backup pending oob data */
 	memcpy(nfc->pending_oob[0], chip->oob_poi, mtd->oobsize);
 
-	mtk_nfc_do_read_page_hwecc(mtd, chip, nfc->pending_page, page);
+	/* read target page in raw mode first to check whether it's empty */
+	ret = mtk_nfc_do_read_page(mtd, chip, nfc->pending_page, page, 0);
+	if (ret) {
+		/* read failure. reject follow-up actions */
+		dev_err(dev, "raw read error %d on page [%u] for jffs2 fixup\n",
+			ret, page);
 
-	if (mtk_nfc_check_empty_page(mtd, chip, nfc->pending_page)) {
-		/* page is empty, writing directly */
+		/* restore pending oob data */
+		memcpy(chip->oob_poi, nfc->pending_oob[0], mtd->oobsize);
+		return ret;
+	}
+
+	/* page must be checked in raw mode (with ecc parity code region) */
+	empty_page = mtk_nfc_check_empty_page_ecc(mtd, chip, nfc->pending_page);
+	if (empty_page) {
+		/* page is empty. do normal writing */
 		memcpy(chip->oob_poi, nfc->pending_oob[0], mtd->oobsize);
 		return 0;
 	}
 
-	for (i = 0; i < chip->ecc.steps; i++) {
-		oob_poi = oob_ptr(chip, i);
-		oob_flash = oob_buf_ptr(chip, nfc->pending_oob[0], i);
-		for (j = 0; j < nfc->caps->fdm_ecc_size; j++) {
-			if (oob_poi[j] != oob_flash[i]) {
-				oobsame = 0;
-				break;
-			}
+	/* read target page in ecc mode */
+	ret = mtk_nfc_do_read_page(mtd, chip, nfc->pending_page, page, 1);
+	if (ret < 0) {
+		if (ret != -EBADMSG) {
+			/* read failure. reject follow-up actions */
+			dev_err(dev,
+				"read error %d on page [%u] for jffs2 fixup\n",
+				ret, page);
+
+			memcpy(chip->oob_poi, nfc->pending_oob[0],
+			       mtd->oobsize);
+			return ret;
 		}
+
+		/*
+		 * page has unrecoverable ecc error. we can choose to reject
+		 * follow-up actions here.
+		 */
+		dev_warn(dev, "doing page merging on %u with bitflips for jffs2 fixup\n", page);
 	}
 
-	if (oobsame) {
-		/* both oob are the same, doing nothing */
-		memcpy(chip->oob_poi, nfc->pending_oob[0], mtd->oobsize);
-		return 1;
-	}
-
-	/* backup nand oob data */
-	memcpy(nfc->pending_oob[1], chip->oob_poi, mtd->oobsize);
-
-	/* merge oob data */
-	for (i = 0; i < mtd->oobsize; i++)
-		nfc->pending_oob[1][i] &= nfc->pending_oob[0][i];
-
-	mtk_nfc_page_erase_write(mtd, chip, nfc->pending_page,
-		nfc->pending_oob[1], page);
+	/* write page with old data and new oob */
+	ret = mtk_nfc_page_erase_write(mtd, chip, nfc->pending_page,
+				       nfc->pending_oob[0], page);
 
 	/* restore original oob data */
 	memcpy(chip->oob_poi, nfc->pending_oob[0], mtd->oobsize);
 
-	return 1;
+	return !ret ? 1 : ret;
 }
 
 static int mtk_nfc_write_oob_std(struct mtd_info *mtd, struct nand_chip *chip,
@@ -621,10 +644,15 @@ static int mtk_nfc_write_oob_std(struct mtd_info *mtd, struct nand_chip *chip,
 	struct mtk_nfc *nfc = nand_get_controller_data(chip);
 	int ret;
 
-	if (mtk_nfc_write_oob_compat_check(mtd, chip, page))
-		return 0;
+	ret = mtk_nfc_write_oob_jffs2_fixup(mtd, chip, page);
+	if (ret)
+		return ret > 0 ? 0 : ret;
 
 	memset(nfc->buffer, 0xff, mtd->writesize + mtd->oobsize);
+
+	/* Do not write empty page with ecc enabled */
+	if (mtk_nfc_check_empty_page(mtd, chip, nfc->buffer))
+		return 0;
 
 	chip->cmdfunc(mtd, NAND_CMD_SEQIN, 0x00, page);
 
@@ -642,9 +670,11 @@ static int mtk_nfc_read_page_hwecc(struct mtd_info *mtd, struct nand_chip *chip,
 	u8 *buf, int oob_on, int page)
 {
 	struct mtk_nfc *nfc = nand_get_controller_data(chip);
-	int bitflips = 0;
-	int rc, i;
-	u32 reg;
+	struct mtk_nfc_nand_chip *mtk_nand = to_mtk_nand(chip);
+	struct device *dev = nfc->dev;
+	int bitflips[16], errsecs = 0;
+	int ret = 0, rc, i;
+	u32 reg, col;
 
 	nfi_set_reg16(nfc, CNFG_READ_EN | CNFG_AUTO_FMT_EN
 			| CNFG_HW_ECC_EN, NFI_CNFG);
@@ -656,29 +686,102 @@ static int mtk_nfc_read_page_hwecc(struct mtd_info *mtd, struct nand_chip *chip,
 	reg =  chip->ecc.steps << CON_SEC_SHIFT | CON_BRD;
 	nfi_writew(nfc, reg, NFI_CON);
 
+	/* Reset oob buffer to full 0xff */
+	memset(chip->oob_poi, 0xff, mtd->oobsize);
+
 	for (i = 0; i < chip->ecc.steps; i++) {
 		mtk_nfc_read_buf(mtd, data_ptr(chip, buf, i), chip->ecc.size);
 		rc = mtk_ecc_wait_decode_done(nfc->ecc, i);
 
 		mtk_nfc_read_fdm(chip, i, 1);
 
+		bitflips[i] = 0;
+
 		if (rc < 0) {
-			bitflips = -EIO;
+			ret = -EIO;
 		} else {
 			rc = mtk_ecc_correct_check(mtd, nfc->ecc,
 				data_ptr(chip, buf, i), oob_ptr(chip, i), i);
 
-			if (rc < 0)
-				bitflips = -EBADMSG;
-			else if (bitflips >= 0)
-				bitflips += rc;
+			if (rc < 0) {
+				/* Record this sector */
+				errsecs |= BIT(i);
+
+				if (!ret)
+					ret = -EBADMSG;
+			} else {
+				bitflips[i] = rc;
+			}
 		}
 	}
 
 	mtk_ecc_disable(nfc->ecc);
 	nfi_writew(nfc, 0, NFI_CON);
 
-	return bitflips;
+	if (ret != -EBADMSG)
+		goto out;
+
+	/* Start raw read */
+	for (i = 0; i < chip->ecc.steps; i++) {
+		if (!(errsecs & BIT(i)))
+			continue;
+
+		/* Offset of the ecc data of the sector in raw page */
+		col = (uintptr_t)mtk_ecc_ptr(chip, i) - (uintptr_t)nfc->buffer;
+
+		/*
+		 * The NAND cache still contains the page we've read.
+		 * Use Random Data Out to read the ecc data directly
+		 */
+		chip->cmdfunc(mtd, NAND_CMD_RNDOUT, col, -1);
+
+		nfi_set_reg16(nfc, CNFG_READ_EN, NFI_CNFG);
+		nfi_clear_reg16(nfc, CNFG_AUTO_FMT_EN | CNFG_HW_ECC_EN,
+				NFI_CNFG);
+		reg = chip->ecc.steps << CON_SEC_SHIFT | CON_BRD;
+		nfi_writew(nfc, reg, NFI_CON);
+
+		mtk_nfc_read_buf(mtd, ecc_ptr(chip, i),
+			mtk_nand->spare_per_sector - nfc->caps->fdm_size);
+
+		nfi_writew(nfc, 0, NFI_CON);
+
+		/* Try to fix the empty page */
+		rc = mtk_ecc_fixup_empty_step(nfc->ecc, chip,
+					      nfc->caps->fdm_size,
+					      data_ptr(chip, buf, i),
+					      oob_ptr(chip, i),
+					      ecc_ptr(chip, i));
+		if (rc >= 0) {
+			errsecs &= ~BIT(i);
+			bitflips[i] = rc;
+			dev_dbg(dev,
+				"Fixed ECC error at empty page %u setp %u\n",
+				page, i);
+		} else {
+			dev_warn(dev,
+				 "Uncorrectable bitflips in page %u, step %u\n",
+				 page, i);
+		}
+	}
+
+	if (!errsecs)
+		ret = 0;
+
+out:
+	if (ret) {
+		if (ret == -EBADMSG)
+			mtd->ecc_stats.failed++;
+
+		return ret;
+	}
+
+	for (i = 0; i < chip->ecc.steps; i++)
+		ret += bitflips[i];
+
+	mtd->ecc_stats.corrected += ret;
+
+	return ret;
 }
 
 static int mtk_nfc_read_page_raw(struct mtd_info *mtd, struct nand_chip *chip,
@@ -859,15 +962,78 @@ static int mtk_nfc_block_markbad(struct mtd_info *mtd, loff_t ofs)
 	return ret;
 }
 
-static int mtk_nfc_do_write_page_hwecc(struct mtd_info *mtd,
-	struct nand_chip *chip, const uint8_t *buf, int page)
+/*******************************************************************************
+ * The following functions are used to solve JFFS2 incompatible issue.
+ ******************************************************************************/
+
+static const uint8_t zero_bits[] = {
+	8, 7, 7, 6, 7, 6, 6, 5, 7, 6, 6, 5, 6, 5, 5, 4,
+	7, 6, 6, 5, 6, 5, 5, 4, 6, 5, 5, 4, 5, 4, 4, 3,
+	7, 6, 6, 5, 6, 5, 5, 4, 6, 5, 5, 4, 5, 4, 4, 3,
+	6, 5, 5, 4, 5, 4, 4, 3, 5, 4, 4, 3, 4, 3, 3, 2,
+	7, 6, 6, 5, 6, 5, 5, 4, 6, 5, 5, 4, 5, 4, 4, 3,
+	6, 5, 5, 4, 5, 4, 4, 3, 5, 4, 4, 3, 4, 3, 3, 2,
+	6, 5, 5, 4, 5, 4, 4, 3, 5, 4, 4, 3, 4, 3, 3, 2,
+	5, 4, 4, 3, 4, 3, 3, 2, 4, 3, 3, 2, 3, 2, 2, 1,
+	7, 6, 6, 5, 6, 5, 5, 4, 6, 5, 5, 4, 5, 4, 4, 3,
+	6, 5, 5, 4, 5, 4, 4, 3, 5, 4, 4, 3, 4, 3, 3, 2,
+	6, 5, 5, 4, 5, 4, 4, 3, 5, 4, 4, 3, 4, 3, 3, 2,
+	5, 4, 4, 3, 4, 3, 3, 2, 4, 3, 3, 2, 3, 2, 2, 1,
+	6, 5, 5, 4, 5, 4, 4, 3, 5, 4, 4, 3, 4, 3, 3, 2,
+	5, 4, 4, 3, 4, 3, 3, 2, 4, 3, 3, 2, 3, 2, 2, 1,
+	5, 4, 4, 3, 4, 3, 3, 2, 4, 3, 3, 2, 3, 2, 2, 1,
+	4, 3, 3, 2, 3, 2, 2, 1, 3, 2, 2, 1, 2, 1, 1, 0,
+};
+
+static uint32_t count_page_zeros(const uint8_t *buf, uint32_t len)
+{
+	uint32_t i, c = 0;
+
+	for (i = 0; i < len; i++)
+		c += zero_bits[buf[i]];
+
+	return c;
+}
+
+static bool mtk_nfc_check_empty_page_ecc(struct mtd_info *mtd,
+					 struct nand_chip *chip,
+					 const uint8_t *buf)
+{
+	struct mtk_nfc *nfc = nand_get_controller_data(chip);
+	u8 ecc_parity_size;
+	int i, c;
+
+	/* calculate ecc paroty code size */
+	ecc_parity_size = (chip->ecc.strength * 13 + 7) >> 3;
+
+	for (i = 0; i < chip->ecc.steps; i++) {
+		c = count_page_zeros(buf + i * nfc->caps->sector_size,
+				     nfc->caps->sector_size);
+		c += count_page_zeros(oob_ptr(chip, i), nfc->caps->fdm_size);
+		c += count_page_zeros(ecc_ptr(chip, i), ecc_parity_size);
+
+		if (c > chip->ecc.strength)
+			return false;
+	}
+
+	return true;
+}
+
+static int mtk_nfc_do_write_page(struct mtd_info *mtd, struct nand_chip *chip,
+				 const uint8_t *buf, int page, int ecc_on)
 {
 	int status;
 
+	/* Do not write empty page with ecc enabled */
+	if (ecc_on && mtk_nfc_check_empty_page(mtd, chip, buf))
+		return 0;
+
 	chip->cmdfunc(mtd, NAND_CMD_SEQIN, 0x00, page);
 
-	status = mtk_nfc_write_page_hwecc(mtd, chip, buf, 1,
-		page);
+	if (ecc_on)
+		status = mtk_nfc_write_page_hwecc(mtd, chip, buf, 1, page);
+	else
+		status = mtk_nfc_write_page_raw(mtd, chip, buf, 1, page);
 
 	if (status < 0)
 		return status;
@@ -881,22 +1047,20 @@ static int mtk_nfc_do_write_page_hwecc(struct mtd_info *mtd,
 	return 0;
 }
 
-static int mtk_nfc_do_read_page_hwecc(struct mtd_info *mtd,
-	struct nand_chip *chip, uint8_t *buf, int page)
+static int mtk_nfc_do_read_page(struct mtd_info *mtd, struct nand_chip *chip,
+				uint8_t *buf, int page, int ecc_on)
 {
-	unsigned int ecc_failures = mtd->ecc_stats.failed;
 	int status;
 
 	chip->cmdfunc(mtd, NAND_CMD_READ0, 0x00, page);
 
-	status = mtk_nfc_read_page_hwecc(mtd, chip, buf, 1,
-		page);
+	if (ecc_on)
+		status = mtk_nfc_read_page_hwecc(mtd, chip, buf, 1, page);
+	else
+		status = mtk_nfc_read_page_raw(mtd, chip, buf, 1, page);
 
 	if (status < 0)
 		return status;
-
-	if (mtd->ecc_stats.failed - ecc_failures)
-		return -EBADMSG;
 
 	return 0;
 }
@@ -904,10 +1068,16 @@ static int mtk_nfc_do_read_page_hwecc(struct mtd_info *mtd,
 static int mtk_nfc_do_erase(struct mtd_info *mtd, struct nand_chip *chip,
 	int page)
 {
+	int status;
+
 	chip->cmdfunc(mtd, NAND_CMD_ERASE1, -1, page);
 	chip->cmdfunc(mtd, NAND_CMD_ERASE2, -1, -1);
 
-	return chip->waitfunc(mtd, chip);
+	status = chip->waitfunc(mtd, chip);
+	if (status & NAND_STATUS_FAIL)
+		return -EIO;
+
+	return 0;
 }
 
 static int mtk_nfc_page_erase_write(struct mtd_info *mtd,
@@ -916,78 +1086,166 @@ static int mtk_nfc_page_erase_write(struct mtd_info *mtd,
 {
 	struct mtk_nfc *nfc = nand_get_controller_data(chip);
 	int pages_per_block, page_start;
-	int i;
+	struct device *dev = nfc->dev;
+	int i, ret;
 
 	pages_per_block = mtd->erasesize / mtd->writesize;
 	page_start = page - page % pages_per_block;
 
 	/* read all pages within this block except the one to be rewritten */
 	for (i = 0; i < pages_per_block; i++) {
-		if (page_start + i != page) {
-			mtk_nfc_do_read_page_hwecc(mtd, chip,
-				nfc->block_buffer[i], page_start + i);
-			memcpy(nfc->block_buffer[i] + mtd->writesize,
-				chip->oob_poi,
-				nfc->caps->fdm_size * chip->ecc.steps);
+		if (page_start + i == page)
+			continue;
+
+		ret = mtk_nfc_do_read_page(mtd, chip, nfc->block_buffer[i].buf,
+					   page_start + i, 1);
+		if (!ret) {
+			/* no error, or ecc corrected */
+			nfc->block_buffer[i].ecc_on = 1;
+		} else if (ret == -EBADMSG) {
+			/* unrecoverable ecc error. switch to raw read */
+			ret = mtk_nfc_do_read_page(mtd, chip,
+						   nfc->block_buffer[i].buf,
+						   page_start + i, 0);
+			if (ret) {
+				/* I/O error. print error */
+				dev_err(dev,
+					"raw read error %d on page %u for jffs2 fixup\n", ret, page);
+				nfc->block_buffer[i].ecc_on = -1;
+			}
+			nfc->block_buffer[i].ecc_on = 0;
+		} else {
+			/* I/O error. print error */
+			dev_err(dev,
+				"read error %d on page %u for jffs2 fixup\n",
+				ret, page);
+			nfc->block_buffer[i].ecc_on = -1;
 		}
+
+		memcpy(nfc->block_buffer[i].buf + mtd->writesize, chip->oob_poi,
+		       mtd->oobsize);
 	}
 
 	/* erase this block */
-	mtk_nfc_do_erase(mtd, chip, page_start);
+	ret = mtk_nfc_do_erase(mtd, chip, page_start);
+	if (ret) {
+		/* erase failure. print error */
+		dev_err(dev, "erase failed %d on page %u for jffs2 fixup\n",
+			ret, page);
+		return ret;
+	}
 
 	/* write back pages except the one to be rewritten */
 	for (i = 0; i < pages_per_block; i++) {
-		if (page_start + i != page) {
-			memcpy(chip->oob_poi,
-				nfc->block_buffer[i] + mtd->writesize,
-				nfc->caps->fdm_size * chip->ecc.steps);
-			mtk_nfc_do_write_page_hwecc(mtd, chip,
-				nfc->block_buffer[i], page_start + i);
+		if (page_start + i == page)
+			continue;
+
+		/* skip write page which failed on reading */
+		if (nfc->block_buffer[i].ecc_on < 0) {
+			dev_info(dev,
+				 "skipping writing page %u for jffs2 fixup\n",
+				 page);
+			continue;
+		}
+
+		memcpy(chip->oob_poi, nfc->block_buffer[i].buf + mtd->writesize,
+		       mtd->oobsize);
+		ret = mtk_nfc_do_write_page(mtd, chip, nfc->block_buffer[i].buf,
+					    page_start + i,
+					    nfc->block_buffer[i].ecc_on);
+		if (ret) {
+			dev_err(dev,
+				"write error %d on page %u for jffs2 fixup\n",
+				ret, page);
 		}
 	}
 
 	/* write page */
 	memcpy(chip->oob_poi, oob, nfc->caps->fdm_size * chip->ecc.steps);
 
-	mtk_nfc_do_write_page_hwecc(mtd, chip, nfc->pending_page, page);
+	ret = mtk_nfc_do_write_page(mtd, chip, buf, page, 1);
+	if (ret) {
+		dev_err(dev, "write error %d on page [%u] for jffs2 fixup\n",
+			ret, page);
+	}
 
-	return 0;
+	return ret;
 }
 
-static int mtk_nfc_write_page_compat_check(struct mtd_info *mtd,
+static int mtk_nfc_write_page_jffs2_fixup(struct mtd_info *mtd,
 	struct nand_chip *chip, const uint8_t *buf, int page)
 {
 	struct mtk_nfc *nfc = nand_get_controller_data(chip);
-	int i;
+	struct device *dev = nfc->dev;
+	int ret, pages_per_block;
+	bool empty_page = false;
+
+	/*
+	 * only do this for first page of a block
+	 * (i.e. the page with JFFS2 clean marker)
+	 */
+	pages_per_block = mtd->erasesize / mtd->writesize;
+	if (page % pages_per_block)
+		return 0;
 
 	/* backup pending oob data */
 	memcpy(nfc->pending_oob[0], chip->oob_poi, mtd->oobsize);
 
-	mtk_nfc_do_read_page_hwecc(mtd, chip, nfc->pending_page, page);
+	/* read target page in raw mode first to check whether it's empty */
+	ret = mtk_nfc_do_read_page(mtd, chip, nfc->pending_page, page, 0);
+	if (ret) {
+		/* read failure. reject follow-up actions */
+		dev_err(dev, "raw read error %d on page [%u] for jffs2 fixup\n",
+			ret, page);
 
-	if (mtk_nfc_check_empty_page(mtd, chip, nfc->pending_page)) {
-		/* page is empty, writing directly */
+		/* restore pending oob data */
+		memcpy(chip->oob_poi, nfc->pending_oob[0], mtd->oobsize);
+		return ret;
+	}
+
+	/* page must be checked in raw mode (with ecc parity code region) */
+	empty_page = mtk_nfc_check_empty_page_ecc(mtd, chip, nfc->pending_page);
+	if (empty_page) {
+		/* page is empty. do normal writing */
 		memcpy(chip->oob_poi, nfc->pending_oob[0], mtd->oobsize);
 		return 0;
 	}
 
+	/* read target page in ecc mode */
+	ret = mtk_nfc_do_read_page(mtd, chip, nfc->pending_page, page, 1);
+	if (ret < 0) {
+		if (ret != -EBADMSG) {
+			/* read failure. reject follow-up actions */
+			dev_err(dev,
+				"read error %d on page [%u] for jffs2 fixup\n",
+				ret, page);
+
+			memcpy(chip->oob_poi, nfc->pending_oob[0],
+			       mtd->oobsize);
+			return ret;
+		}
+
+		/*
+		 * page has unrecoverable ecc error. we can choose to reject
+		 * follow-up actions here.
+		 */
+		dev_warn(dev, "doing page merging on %u with bitflips for jffs2 fixup\n", page);
+	}
+
+	/* backup pending page data (buf will be touched during write) */
+	memcpy(nfc->pending_page, buf, mtd->writesize);
+
 	/* backup in-flash oob data */
 	memcpy(nfc->pending_oob[1], chip->oob_poi, mtd->oobsize);
 
-	/* merge page data */
-	for (i = 0; i < mtd->writesize; i++)
-		nfc->pending_page[i] &= buf[i];
-
-	for (i = 0; i < mtd->oobsize; i++)
-		nfc->pending_oob[1][i] &= nfc->pending_oob[0][i];
-
-	mtk_nfc_page_erase_write(mtd, chip, nfc->pending_page,
-		nfc->pending_oob[1], page);
+	/* write page with new data and old oob */
+	ret = mtk_nfc_page_erase_write(mtd, chip, nfc->pending_page,
+				       nfc->pending_oob[1], page);
 
 	/* restore original oob */
 	memcpy(chip->oob_poi, nfc->pending_oob[0], mtd->oobsize);
 
-	return 1;
+	return !ret ? 1 : ret;
 }
 
 static int mtk_nfc_write_page(struct mtd_info *mtd, struct nand_chip *chip,
@@ -997,9 +1255,14 @@ static int mtk_nfc_write_page(struct mtd_info *mtd, struct nand_chip *chip,
 	int status;
 
 	if (likely(!raw)) {
-		if (mtk_nfc_write_page_compat_check(mtd, chip, buf, page))
-			return 0;
+		status = mtk_nfc_write_page_jffs2_fixup(mtd, chip, buf, page);
+		if (status)
+			return status > 0 ? 0 : status;
 	}
+
+	/* Do not write empty page with ecc enabled */
+	if (!raw && mtk_nfc_check_empty_page(mtd, chip, buf))
+		return 0;
 
 	chip->cmdfunc(mtd, NAND_CMD_SEQIN, 0x00, page);
 
@@ -1123,8 +1386,8 @@ static int mtk_nfc_nand_chip_init(struct device *dev, struct mtk_nfc *nfc,
 		return -ENOMEM;
 
 	for (i = 0; i < npgs; i++) {
-		nfc->block_buffer[i] = devm_kzalloc(dev, len, GFP_KERNEL);
-		if (!nfc->block_buffer[i])
+		nfc->block_buffer[i].buf = devm_kzalloc(dev, len, GFP_KERNEL);
+		if (!nfc->block_buffer[i].buf)
 			return -ENOMEM;
 	}
 

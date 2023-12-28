@@ -1,5 +1,5 @@
-obj-m += mtk_hnat/
 obj-$(CONFIG_RAETH) += raeth.o
+obj-$(CONFIG_NET_MEDIATEK_HNAT) += mtk_hnat/
 raeth-objs := raether.o raether_pdma.o ra_mac.o mii_mgr.o ra_switch.o ra_dbg_proc.o
 raeth-objs += raether_qdma.o
 raeth-objs += raether_rss.o
@@ -14,8 +14,7 @@ raeth-objs += ra_dbg_hwioc.o
 
 ifeq ($(CONFIG_RAETH_ESW_CONTROL),y)
 raeth-objs += mtk_esw/ioctl_mt762x.o
-endif
-
+else
 ccflags-y += -Idrivers/net/ethernet/raeth/rtl8367c/include  -D_LITTLE_ENDIAN -DMDC_MDIO_OPERATION
 ccflags-y += -Idrivers/net/ethernet/raeth
 ccflags-y += -Iinclude/linux/
@@ -75,6 +74,7 @@ raeth-objs += rtl8367c/svlan.o
 raeth-objs += rtl8367c/trap.o
 raeth-objs += rtl8367c/trunk.o
 raeth-objs += rtl8367c/vlan.o
+endif
 
 ifeq ($(CONFIG_RAETH_PDMA_DVT),y)
 raeth-objs += dvt/raether_pdma_dvt.o

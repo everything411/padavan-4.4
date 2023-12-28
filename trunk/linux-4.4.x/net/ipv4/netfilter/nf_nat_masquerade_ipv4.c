@@ -21,13 +21,16 @@
 #include <linux/netfilter/x_tables.h>
 #include <net/netfilter/nf_nat.h>
 #include <net/netfilter/ipv4/nf_nat_masquerade.h>
+
+#if defined(CONFIG_BCM_KF_NETFILTER)
 #include <net/netfilter/nf_conntrack_zones.h>
 #include <net/netfilter/nf_conntrack_helper.h>
 #include <net/netfilter/nf_conntrack_core.h>
+#endif
 
-
+#if defined(CONFIG_BCM_KF_NETFILTER)
 /****************************************************************************/
-static void swrt_nat_expect(struct nf_conn *ct,
+static void bcm_nat_expect(struct nf_conn *ct,
 			   struct nf_conntrack_expect *exp)
 {
 	struct nf_nat_range range;
@@ -49,7 +52,7 @@ static void swrt_nat_expect(struct nf_conn *ct,
 }
 
 /****************************************************************************/
-static int swrt_nat_help(struct sk_buff *skb, unsigned int protoff,
+static int bcm_nat_help(struct sk_buff *skb, unsigned int protoff,
 			struct nf_conn *ct, enum ip_conntrack_info ctinfo)
 {
 	int dir = CTINFO2DIR(ctinfo);
@@ -60,7 +63,7 @@ static int swrt_nat_help(struct sk_buff *skb, unsigned int protoff,
 	    help->expecting[NF_CT_EXPECT_CLASS_DEFAULT])
 		return NF_ACCEPT;
 
-	pr_debug("swrt_nat: packet[%d bytes] ", skb->len);
+	pr_debug("bcm_nat: packet[%d bytes] ", skb->len);
 	nf_ct_dump_tuple(&ct->tuplehash[dir].tuple);
 	pr_debug("reply: ");
 	nf_ct_dump_tuple(&ct->tuplehash[!dir].tuple);
@@ -76,31 +79,31 @@ static int swrt_nat_help(struct sk_buff *skb, unsigned int protoff,
 	exp->saved_addr = ct->tuplehash[dir].tuple.src.u3;
 	exp->saved_proto.udp.port = ct->tuplehash[dir].tuple.src.u.udp.port;
 	exp->dir = !dir;
-	exp->expectfn = swrt_nat_expect;
+	exp->expectfn = bcm_nat_expect;
 
 	/* Setup expect */
 	nf_ct_expect_related(exp);
 	nf_ct_expect_put(exp);
-	pr_debug("swrt_nat: expect setup\n");
+	pr_debug("bcm_nat: expect setup\n");
 
 	return NF_ACCEPT;
 }
 
 /****************************************************************************/
-static struct nf_conntrack_expect_policy swrt_nat_exp_policy __read_mostly = {
+static struct nf_conntrack_expect_policy bcm_nat_exp_policy __read_mostly = {
 	.max_expected 	= 1000,
 	.timeout	= 240,
 };
 
 /****************************************************************************/
-static struct nf_conntrack_helper nf_conntrack_helper_swrt_nat __read_mostly = {
-	.name = "SWRT-NAT",
+static struct nf_conntrack_helper nf_conntrack_helper_bcm_nat __read_mostly = {
+	.name = "BCM-NAT",
 	.me = THIS_MODULE,
 	.tuple.src.l3num = AF_INET,
 	.tuple.dst.protonum = IPPROTO_UDP,
-	.expect_policy = &swrt_nat_exp_policy,
+	.expect_policy = &bcm_nat_exp_policy,
 	.expect_class_max = 1,
-	.help = swrt_nat_help,
+	.help = bcm_nat_help,
 };
 
 /****************************************************************************/
@@ -150,6 +153,7 @@ static inline struct nf_conntrack_expect *find_fullcone_exp(struct nf_conn *ct)
 
 	return exp;
 }
+#endif /* CONFIG_KF_NETFILTER */
 
 
 unsigned int
@@ -188,12 +192,13 @@ nf_nat_masquerade_ipv4(struct sk_buff *skb, unsigned int hooknum,
 
 	nat->masq_index = out->ifindex;
 
+#if defined(CONFIG_BCM_KF_NETFILTER)
 
 /* RFC 4787 - 4.2.2.  Port Parity
    i.e., an even port will be mapped to an even port, and an odd port will be mapped to an odd port.
 */
 #define CHECK_PORT_PARITY(a, b) ((a%2)==(b%2))
-#define NF_NAT_RANGE_PROTO_PSID	(1 << 7)
+
 	if (!(range->flags & NF_NAT_RANGE_PROTO_PSID)
 	    && range->min_addr.ip != 0 /* nat_mode == full cone */
 	    && (nfct_help(ct) == NULL || nfct_help(ct)->helper == NULL)
@@ -203,7 +208,7 @@ nf_nat_masquerade_ipv4(struct sk_buff *skb, unsigned int hooknum,
 		u_int16_t maxport;
 		struct nf_conntrack_expect *exp;
 
-		pr_debug("swrt_nat: need full cone NAT\n");
+		pr_debug("bcm_nat: need full cone NAT\n");
 
 		/* Choose port */
 		spin_lock_bh(&nf_conntrack_expect_lock);
@@ -211,7 +216,7 @@ nf_nat_masquerade_ipv4(struct sk_buff *skb, unsigned int hooknum,
 		exp = find_fullcone_exp(ct);
 		if (exp) {
 			minport = maxport = exp->tuple.dst.u.udp.port;
-			pr_debug("swrt_nat: existing mapped port = %hu\n",
+			pr_debug("bcm_nat: existing mapped port = %hu\n",
 			       	 ntohs(minport));
 		} else { /* no previous expect */
 			u_int16_t newport, tmpport, orgport;
@@ -225,7 +230,7 @@ nf_nat_masquerade_ipv4(struct sk_buff *skb, unsigned int hooknum,
 			for (newport = ntohs(minport),tmpport = ntohs(maxport); 
 			     newport <= tmpport; newport++) {
 			     	if (CHECK_PORT_PARITY(orgport, newport) && !find_exp(newsrc, htons(newport), ct)) {
-                                        pr_debug("swrt_nat: new mapped port = "
+                                        pr_debug("bcm_nat: new mapped port = "
 					       	 "%hu\n", newport);
 					minport = maxport = htons(newport);
 					break;
@@ -248,14 +253,15 @@ nf_nat_masquerade_ipv4(struct sk_buff *skb, unsigned int hooknum,
 		if (ret == NF_ACCEPT) {
 			struct nf_conn_help *help = nfct_help(ct);
 			if (help == NULL)
-				help = nf_ct_helper_ext_add(ct, &nf_conntrack_helper_swrt_nat, GFP_ATOMIC);
+				help = nf_ct_helper_ext_add(ct, &nf_conntrack_helper_bcm_nat, GFP_ATOMIC);
 			if (help != NULL) {
-				help->helper = &nf_conntrack_helper_swrt_nat;
-				pr_debug("swrt_nat: helper set\n");
+				help->helper = &nf_conntrack_helper_bcm_nat;
+				pr_debug("bcm_nat: helper set\n");
 			}
 		}
 		return ret;
 	}
+#endif /* CONFIG_KF_NETFILTER */
 
 	/* Transfer from original range. */
 	memset(&newrange.min_addr, 0, sizeof(newrange.min_addr));
@@ -347,7 +353,9 @@ EXPORT_SYMBOL_GPL(nf_nat_masquerade_ipv4_register_notifier);
 
 void nf_nat_masquerade_ipv4_unregister_notifier(void)
 {
-	nf_conntrack_helper_unregister(&nf_conntrack_helper_swrt_nat);
+#if defined(CONFIG_BCM_KF_NETFILTER)
+	nf_conntrack_helper_unregister(&nf_conntrack_helper_bcm_nat);
+#endif
 	/* check if the notifier still has clients */
 	if (atomic_dec_return(&masquerade_notifier_refcount) > 0)
 		return;

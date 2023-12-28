@@ -75,7 +75,8 @@
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 
-#if defined(CONFIG_RA_HW_NAT)  || defined(CONFIG_RA_HW_NAT_MODULE)
+#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE) || \
+    defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
 #include <net/ra_nat.h>
 #endif
 
@@ -127,8 +128,13 @@
 
 #define	MAX_RX_LENGTH	1536
 
+#if defined(CONFIG_SUPPORT_OPENWRT)
+#define DEV_NAME        "eth0"
+#define DEV2_NAME       "eth1"
+#else
 #define DEV_NAME        "eth2"
 #define DEV2_NAME       "eth3"
+#endif
 
 #if defined(CONFIG_MACH_MT7623)
 #define GMAC0_OFFSET    0xE000
@@ -373,7 +379,10 @@ u32 mii_mgr_write_cl45(u32 port_num, u32 dev_addr, u32 reg_addr,
 		       u32 write_data);
 
 /* HNAT functions */
-#if !defined(CONFIG_RA_NAT_NONE)
+#if defined(CONFIG_RA_NAT_NONE)
+//static int (*ra_sw_nat_hook_rx)(struct sk_buff *skb);
+//static int (*ra_sw_nat_hook_tx)(struct sk_buff *skb, int gmac_no);
+#else
 extern int (*ra_sw_nat_hook_rx)(struct sk_buff *skb);
 extern int (*ra_sw_nat_hook_tx)(struct sk_buff *skb, int gmac_no);
 #endif

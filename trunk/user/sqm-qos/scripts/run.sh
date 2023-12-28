@@ -24,7 +24,7 @@ stop_statefile() {
 }
 
 runmode_1(){
-export IFACE="eth3"
+# export IFACE="eth2.1"
 nvram set hw_nat_mode=1
 nvram commit
 rmmod hw_nat
@@ -40,7 +40,7 @@ iwpriv rax0 set hw_nat_register=1
 }
 
 runmode_2(){
-export IFACE="eth3"
+# export IFACE="eth2.1"
 nvram set hw_nat_mode=0
 nvram commit
 rmmod hw_nat
@@ -52,6 +52,7 @@ rmmod hw_nat
 start_sqm_section() {
     runmode="$(nvram get sqm_flag)"
     local section="sqm_"
+    export IFACE=$(nvram get sqm_active)
 
     [ -z "$RUN_IFACE" -o "$RUN_IFACE" = "$IFACE" ] || return
     [ "$(nvram get sqm_enable)" -eq 1 ] || return 0

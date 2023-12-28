@@ -95,6 +95,9 @@ enum ip_conntrack_status {
 	IPS_OFFLOAD_BIT = 14,
 	IPS_OFFLOAD = (1 << IPS_OFFLOAD_BIT),
 
+        /* Trigger */
+        IPS_TRIGGER_BIT = 15,
+        IPS_TRIGGER = (1 << IPS_TRIGGER_BIT),
 };
 
 /* Connection tracking event types */

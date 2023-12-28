@@ -84,8 +84,20 @@ int ieee80211_channel_to_frequency(int chan, enum ieee80211_band band)
 		else
 			return 5000 + chan * 5;
 		break;
+#ifdef CONFIG_BCM_KF_NL80211_6G_BAND_SUPPORT
+	case IEEE80211_BAND_6GHZ:
+		/* see 802.11ax D6.1 27.3.23.2 */
+		if (chan == 2)
+			return 5935;
+		if (chan <= 233)
+			return 5950 + chan * 5;
+		break;
+	case IEEE80211_BAND_60GHZ:
+		if (chan < 7)
+#else
 	case IEEE80211_BAND_60GHZ:
 		if (chan < 5)
+#endif /* CONFIG_BCM_KF_NL80211_6G_BAND_SUPPORT */
 			return 56160 + chan * 2160;
 		break;
 	default:
@@ -104,9 +116,20 @@ int ieee80211_frequency_to_channel(int freq)
 		return (freq - 2407) / 5;
 	else if (freq >= 4910 && freq <= 4980)
 		return (freq - 4000) / 5;
+#ifdef CONFIG_BCM_KF_NL80211_6G_BAND_SUPPORT
+	else if (freq < 5925)
+		return (freq - 5000) / 5;
+	else if (freq == 5935)
+		return 2;
+	else if (freq <= 45000) /* DMG band lower limit */
+		/* see 802.11ax D6.1 27.3.22.2 */
+		return (freq - 5950) / 5;
+	else if (freq >= 58320 && freq <= 70200)
+#else
 	else if (freq <= 45000) /* DMG band lower limit */
 		return (freq - 5000) / 5;
 	else if (freq >= 58320 && freq <= 64800)
+#endif /* CONFIG_BCM_KF_NL80211_6G_BAND_SUPPORT */
 		return (freq - 56160) / 2160;
 	else
 		return 0;
@@ -143,6 +166,9 @@ static void set_mandatory_flags_band(struct ieee80211_supported_band *sband,
 
 	switch (band) {
 	case IEEE80211_BAND_5GHZ:
+#ifdef CONFIG_BCM_KF_NL80211_6G_BAND_SUPPORT
+	case IEEE80211_BAND_6GHZ:
+#endif /* CONFIG_BCM_KF_NL80211_6G_BAND_SUPPORT */
 		want = 3;
 		for (i = 0; i < sband->n_bitrates; i++) {
 			if (sband->bitrates[i].bitrate == 60 ||
@@ -218,7 +244,11 @@ int cfg80211_validate_key_settings(struct cfg80211_registered_device *rdev,
 				   struct key_params *params, int key_idx,
 				   bool pairwise, const u8 *mac_addr)
 {
+#ifdef CONFIG_BCM_KF_MISC_BACKPORTS
+	if (key_idx < 0 || key_idx > 7)
+#else
 	if (key_idx > 5)
+#endif /* CONFIG_BCM_KF_MISC_BACKPORTS */
 		return -EINVAL;
 
 	if (!pairwise && mac_addr && !(rdev->wiphy.flags & WIPHY_FLAG_IBSS_RSN))
@@ -249,7 +279,17 @@ int cfg80211_validate_key_settings(struct cfg80211_registered_device *rdev,
 		/* Disallow BIP (group-only) cipher as pairwise cipher */
 		if (pairwise)
 			return -EINVAL;
+#ifdef CONFIG_BCM_KF_MISC_BACKPORTS
+		if (key_idx < 4)
+			return -EINVAL;
 		break;
+	case WLAN_CIPHER_SUITE_WEP40:
+	case WLAN_CIPHER_SUITE_WEP104:
+		if (key_idx > 3)
+			return -EINVAL;
+#else
+		break;
+#endif /* CONFIG_BCM_KF_MISC_BACKPORTS */
 	default:
 		break;
 	}

@@ -59,6 +59,7 @@ struct mt753x_port_cfg {
 	u32 force_link: 1;
 	u32 speed: 2;
 	u32 duplex: 1;
+	bool ssc_on;
 };
 
 struct mt753x_phy {
@@ -84,6 +85,7 @@ struct gsw_mt753x {
 	struct mt753x_port_cfg port5_cfg;
 	struct mt753x_port_cfg port6_cfg;
 
+	bool hw_phy_cal;
 	bool phy_status_poll;
 	struct mt753x_phy phys[MT753X_NUM_PHYS];
 	int phy_irqs[PHY_MAX_ADDR];
@@ -152,10 +154,15 @@ int mt753x_mmd_ind_read(struct gsw_mt753x *gsw, int addr, int devad, u16 reg);
 void mt753x_mmd_ind_write(struct gsw_mt753x *gsw, int addr, int devad, u16 reg,
 			  u16 val);
 
+int mt753x_tr_read(struct gsw_mt753x *gsw, int addr, u8 ch, u8 node, u8 daddr);
+void mt753x_tr_write(struct gsw_mt753x *gsw, int addr, u8 ch, u8 node, u8 daddr,
+		     u32 data);
+
 void mt753x_irq_worker(struct work_struct *work);
 void mt753x_irq_enable(struct gsw_mt753x *gsw);
 
 int mt753x_phy_calibration(struct gsw_mt753x *gsw, u8 phyaddr);
+int extphy_init(struct gsw_mt753x *gsw, int addr);
 
 /* MDIO Indirect Access Registers */
 #define MII_MMD_ACC_CTL_REG		0x0d

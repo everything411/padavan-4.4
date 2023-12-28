@@ -19,10 +19,11 @@ struct timer_list {
 	void			(*function)(unsigned long);
 	unsigned long		data;
 	u32			flags;
-#ifdef CONFIG_SHORTCUT_FE
-	unsigned long		cust_data;
-#endif
 	int			slack;
+
+#ifdef CONFIG_SHORTCUT_FE
+	//unsigned long		cust_data;
+#endif
 
 #ifdef CONFIG_TIMER_STATS
 	int			start_pid;

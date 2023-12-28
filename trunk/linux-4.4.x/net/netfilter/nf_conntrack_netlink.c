@@ -639,7 +639,7 @@ ctnetlink_nlmsg_size(const struct nf_conn *ct)
 #ifdef CONFIG_NF_CONNTRACK_EVENTS
 #ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
 static int ctnetlink_conntrack_event(struct notifier_block *this,
-                           unsigned long events, void *ptr)
+				     unsigned long events, void *ptr)
 #else
 static int
 ctnetlink_conntrack_event(unsigned int events, struct nf_ct_event *item)

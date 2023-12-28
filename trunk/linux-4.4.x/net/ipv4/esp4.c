@@ -18,6 +18,18 @@
 #include <net/protocol.h>
 #include <net/udp.h>
 
+#if defined (CONFIG_RALINK_HWCRYPTO) || defined (CONFIG_RALINK_HWCRYPTO_MODULE)
+extern int 
+ipsec_esp_output(
+	struct xfrm_state *x, 
+	struct sk_buff *skb
+);
+extern int 
+ipsec_esp_input(
+	struct xfrm_state *x, 
+	struct sk_buff *skb
+);
+#else
 struct esp_skb_cb {
 	struct xfrm_skb_cb xfrm;
 	void *tmp;
@@ -501,6 +513,7 @@ static int esp_input(struct xfrm_state *x, struct sk_buff *skb)
 out:
 	return err;
 }
+#endif /* #if defined (CONFIG_RALINK_HWCRYPTO) || defined (CONFIG_RALINK_HWCRYPTO_MODULE) */
 
 static u32 esp4_get_mtu(struct xfrm_state *x, int mtu)
 {
@@ -749,8 +762,13 @@ static const struct xfrm_type esp_type =
 	.init_state	= esp_init_state,
 	.destructor	= esp_destroy,
 	.get_mtu	= esp4_get_mtu,
+#if defined (CONFIG_RALINK_HWCRYPTO) || defined (CONFIG_RALINK_HWCRYPTO_MODULE)
+	.input		= ipsec_esp_input,
+	.output		= ipsec_esp_output
+#else
 	.input		= esp_input,
 	.output		= esp_output
+#endif
 };
 
 static struct xfrm4_protocol esp4_protocol = {

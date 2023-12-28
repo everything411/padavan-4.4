@@ -37,3 +37,7 @@ obj-y		+= chips/ lpddr/ maps/ devices/ nand/ onenand/ tests/
 
 obj-$(CONFIG_MTD_SPI_NOR)	+= spi-nor/
 obj-$(CONFIG_MTD_UBI)		+= ubi/
+
+obj-$(CONFIG_NMBM)		+= nmbm/
+
+obj-$(CONFIG_MTK_SPI_NAND)	+= mtk-snand/

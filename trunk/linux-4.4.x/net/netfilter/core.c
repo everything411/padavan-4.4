@@ -311,10 +311,18 @@ next_hook:
 		ret = NF_DROP_GETERR(verdict);
 		if (ret == 0)
 			ret = -EPERM;
-	} else if ((verdict & NF_VERDICT_MASK) == NF_QUEUE) {
+	} else if ((verdict & NF_VERDICT_MASK) == NF_QUEUE ||
+		   (verdict & NF_VERDICT_MASK) == NF_IMQ_QUEUE) {
 		int err = nf_queue(skb, elem, state,
-				   verdict >> NF_VERDICT_QBITS);
+				   verdict);
 		if (err < 0) {
+#if defined(CONFIG_IMQ) || defined(CONFIG_IMQ_MODULE)
+			/* IMQ Bypass */
+			if (err == -ECANCELED && skb->imq_flags == 0) {
+				goto next_hook;
+			}
+#endif
+
 			if (err == -ESRCH &&
 			   (verdict & NF_VERDICT_FLAG_QUEUE_BYPASS))
 				goto next_hook;

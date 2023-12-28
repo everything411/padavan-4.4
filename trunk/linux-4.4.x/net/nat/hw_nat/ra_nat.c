@@ -57,7 +57,7 @@ MODULE_PARM_DESC(wan_vid, "VLAN ID for WAN traffic");
 struct timer_list hwnat_clear_entry_timer;
 static void hwnat_clear_entry(unsigned long data)
 {
-	//printk("HW_NAT work normally\n");
+	printk("HW_NAT work normally\n");
 	reg_modify_bits(PPE_FOE_CFG, FWD_CPU_BUILD_ENTRY, 4, 2);
 	//del_timer_sync(&hwnat_clear_entry_timer);
 
@@ -293,7 +293,7 @@ uint16_t remove_vlan_tag(struct sk_buff *skb)
 	/* something wrong */
 	if ((veth->h_vlan_proto != htons(ETH_P_8021Q)) && (veth->h_vlan_proto != 0x5678)) {
 		//if (pr_debug_ratelimited())
-		//	pr_info("HNAT: Reentry packet is untagged frame?\n");
+			pr_info("HNAT: Reentry packet is untagged frame?\n");
 		return 65535;
 	}
 	/*we just want to get vid*/
@@ -574,7 +574,7 @@ int get_bridge_info(void)
 {
 	struct net_device *br0_dev; 
 	struct in_device *br0_in_dev;
-#if 0
+#if defined(CONFIG_SUPPORT_OPENWRT)
 	br0_dev = dev_get_by_name(&init_net,"br-lan");
 #else
 	br0_dev = dev_get_by_name(&init_net,"br0");
@@ -599,8 +599,8 @@ int get_bridge_info(void)
 	else
 		pr_info("br0_in_dev = NULL\n");
 	
-	pr_debug("br0Ip = %x\n", br0Ip);
-	pr_debug("brNetmask = %x\n", brNetmask);
+	pr_info("br0Ip = %x\n", br0Ip);
+	pr_info("brNetmask = %x\n", brNetmask);
 	getBrLan = 1;
 	
 	return 0;
@@ -2109,7 +2109,8 @@ int32_t ppe_setforce_port_info(struct sk_buff *skb, struct foe_entry *entry, int
 	if (IS_IPV4_GRP(entry)) {
 		if (skb->mark > 63)
 			skb->mark = 0;
-		qidx = skb->mark;
+		qidx = M2Q_table[skb->mark];
+		//qidx = skb->mark;
 #if defined(CONFIG_ARCH_MT7622) 
 		entry->ipv4_hnapt.iblk2.qid1 = ((qidx & 0x30) >> 4);
 #endif
@@ -2134,12 +2135,13 @@ int32_t ppe_setforce_port_info(struct sk_buff *skb, struct foe_entry *entry, int
 	else if (IS_IPV6_GRP(entry)) {
 		if (skb->mark > 63)
 			skb->mark = 0;
-		qidx = skb->mark;
-		entry->ipv6_3t_route.iblk2.qid = (qidx & 0x0f);
-#ifdef CONFIG_PSEUDO_SUPPORT
+		qidx = M2Q_table[skb->mark];
+		//qidx = skb->mark;
 #if defined(CONFIG_ARCH_MT7622) 
 		entry->ipv6_3t_route.iblk2.qid1 = ((qidx & 0x30) >> 4);
 #endif
+		entry->ipv6_3t_route.iblk2.qid = (qidx & 0x0f);
+#ifdef CONFIG_PSEUDO_SUPPORT
 		if (lan_wan_separate == 1 && gmac_no == 2) {
 			entry->ipv6_3t_route.iblk2.qid += 8;
 #if defined(CONFIG_HW_SFQ)
@@ -2655,7 +2657,7 @@ defined(CONFIG_MT7610_AP_APCLI) || defined(CONFIG_APCLI_SUPPORT)
 			offset = RTMP_GET_PACKET_IF(skb) + DP_RA0;
 #endif				/* CONFIG_RT2860V2_AP_WDS // */
 	}
-#if 0
+#if defined(CONFIG_SUPPORT_OPENWRT)
 	else if (strncmp(skb->dev->name, "eth0", 4) == 0)
 		offset = DP_GMAC;
 #ifdef CONFIG_RAETH_GMAC2
@@ -2800,7 +2802,7 @@ void ppe_dev_reg_handler(struct net_device *dev)
 
 	for (i = 0; i < MAX_IF_NUM; i++) {
 		if (dst_port[i] == dev) {
-			pr_debug("%s : %s dst_port table has beed registered(%d)\n", __func__, dev->name, i);
+			pr_info("%s : %s dst_port table has beed registered(%d)\n", __func__, dev->name, i);
 			return;
 		}
 		if (dst_port[i] == NULL) {
@@ -3023,8 +3025,7 @@ int32_t ppe_tx_handler(struct sk_buff *skb, int gmac_no)
 				pr_info("ppe_set_entry_bind\n");
 			/* Set Pseudo Interface info in Foe entry */
 			/* Enter binding state */
-			memset(FOE_INFO_START_ADDR(skb), 0, FOE_INFO_LEN);
-			/*ppe_set_entry_bind(skb, entry);*/
+			ppe_set_entry_bind(skb, entry);
 			return 1;
 		}
 	}
@@ -3104,12 +3105,14 @@ int32_t ppe_tx_handler(struct sk_buff *skb, int gmac_no)
 		if (ppe_parse_result.is_mcast) {
 			foe_mcast_entry_qid(ppe_parse_result.vlan1,
 					    ppe_parse_result.dmac,
-					    skb->mark);
+					    M2Q_table[skb->mark]);
+					    //skb->mark);
 #ifdef CONFIG_PSEUDO_SUPPORT
 			if (lan_wan_separate == 1 && gmac_no == 2) {
 				foe_mcast_entry_qid(ppe_parse_result.vlan1,
 						    ppe_parse_result.dmac,
-						    skb->mark + 8);
+						    M2Q_table[skb->mark] + 8);
+						    //skb->mark + 8);
 #if defined(CONFIG_HW_SFQ)
 				if (web_sfq_enable == 1 && (skb->mark == 2))
 					foe_mcast_entry_qid(ppe_parse_result.vlan1,
@@ -3660,7 +3663,7 @@ defined(CONFIG_MT7610_AP_MESH)
 #if defined(CONFIG_RA_HW_NAT_WIFI_NEW_ARCH)
 		struct net_device *dev;
 		int i;
-#if 0
+#if defined(CONFIG_SUPPORT_OPENWRT)
 		dev = ra_dev_get_by_name("eth0");
 		ppe_dev_reg_handler(dev);
 		for (i = 0; i < MAX_IF_NUM; i++) {
@@ -3705,7 +3708,7 @@ defined(CONFIG_MT7610_AP_MESH)
 #endif
 
 #else
-#if 0
+#if defined(CONFIG_SUPPORT_OPENWRT)
 		dst_port[DP_GMAC] = ra_dev_get_by_name("eth0");
 #ifdef CONFIG_RAETH_GMAC2
 		dst_port[DP_GMAC2] = ra_dev_get_by_name("eth1");
@@ -3986,7 +3989,7 @@ static void set_acl_fwd(uint32_t ebl)
 	unsigned int i, value;
 
 	if (ebl) {
-#if 0
+#if defined(CONFIG_SUPPORT_OPENWRT)
 #if defined(CONFIG_RAETH_SPECIAL_TAG)
 #if defined(CONFIG_WAN_AT_P4)
 		wan_int = ra_dev_get_by_name("eth0.5");
@@ -4313,14 +4316,14 @@ void foe_clear_entry(struct neighbour *neigh)
 				    (entry->ipv4_hnapt.dmac_hi[0] != mac3) ||
 				    (entry->ipv4_hnapt.dmac_lo[1] != mac4) ||
 				    (entry->ipv4_hnapt.dmac_lo[0] != mac5)) {
-				    	//printk("%s: state=%d\n",__func__,neigh->nud_state);
+				    	printk("%s: state=%d\n",__func__,neigh->nud_state);
 				    	reg_modify_bits(PPE_FOE_CFG, ONLY_FWD_CPU, 4, 2);
 				    	
 				  	entry->ipv4_hnapt.udib1.state = INVALID;
 					entry->ipv4_hnapt.udib1.time_stamp = reg_read(FOE_TS) & 0xFF;
 					ppe_set_cache_ebl();
 					mod_timer(&hwnat_clear_entry_timer, jiffies + 3 * HZ);
-				/*
+				
 					printk("delete old entry: dip =%x\n", ntohl(dip));
 							
 				    	printk("old mac= %x:%x:%x:%x:%x:%x, dip=%x\n", 
@@ -4332,7 +4335,7 @@ void foe_clear_entry(struct neighbour *neigh)
 				    		entry->ipv4_hnapt.dmac_lo[0],
 				    		ntohl(dip));
 				    	printk("new mac= %x:%x:%x:%x:%x:%x, dip=%x\n", mac0, mac1, mac2, mac3, mac4, mac5, ntohl(dip));
-				*/
+
 				}
 			}
 		}

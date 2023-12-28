@@ -37,6 +37,10 @@
 
 #include <asm/irq.h>
 
+#ifdef CONFIG_AIROHA_PHY
+#include "airoha.h"
+#endif
+
 MODULE_DESCRIPTION("PHY library");
 MODULE_AUTHOR("Andy Fleming");
 MODULE_LICENSE("GPL");
@@ -323,25 +327,49 @@ static int get_phy_c45_ids(struct mii_bus *bus, int addr, u32 *phy_id,
 static int get_phy_id(struct mii_bus *bus, int addr, u32 *phy_id,
 		      bool is_c45, struct phy_c45_device_ids *c45_ids)
 {
-	int phy_reg;
+	int phy_reg_upper, phy_reg_lower;
+	u32 id;
 
 	if (is_c45)
 		return get_phy_c45_ids(bus, addr, phy_id, c45_ids);
 
+	/* SpaceX SATSW-26717: If we are booting the MRVL phy, the ID will be 0x01410dd1,
+	 * on our Econet PHY, this will not return properly, because we need to setup the PBUS first.
+	 * but will be caught by the CONFIG_AIROHA_PHY section. */
 	/* Grab the bits from PHYIR1, and put them in the upper half */
-	phy_reg = mdiobus_read(bus, addr, MII_PHYSID1);
-	if (phy_reg < 0)
-		return -EIO;
+	phy_reg_upper = mdiobus_read(bus, addr, MII_PHYSID1);
+	phy_reg_lower = mdiobus_read(bus, addr, MII_PHYSID2);
+	id = (phy_reg_upper & 0xffff) << 16 | (phy_reg_lower & 0xffff);
 
-	*phy_id = (phy_reg & 0xffff) << 16;
+	// EN8801S detection
+	#ifdef CONFIG_AIROHA_PHY
+	/* SpaceX: If we are the MRVL phy, skip modifying pbus to support Econet phy. */
+	if(id != 0x01410dd1)
+	{
+		unsigned long pbus_data;
+		unsigned int pbusAddress;
+
+		for(pbusAddress=PHY_ADDRESS_RANGE;pbusAddress<PHY_MAX_ADDR;pbusAddress++)
+		{
+			pbus_data = En8801_varPbusRegRd(bus,pbusAddress,EN8801S_RG_ETHER_PHY_OUI);      //PHY OUI
+			if(pbus_data==EN8801S_PBUS_OUI)
+			{
+				pbus_data = En8801_varPbusRegRd(bus,pbusAddress,EN8801S_RG_SMI_ADDR);       //SMI ADDR
+				pbus_data = (pbus_data & 0xffff0000) | (unsigned long)(EN8801S_PBUS_PHY_ID<<8) | (unsigned long)(EN8801S_MDIO_PHY_ID );
+				printk(KERN_INFO "[Airoha] EN8801S SMI_ADDR=%x (renew)\n",pbus_data);
+				En8801_varPbusRegWr(bus,pbusAddress, EN8801S_RG_SMI_ADDR,pbus_data);
+				*phy_id=0x03a29416;
+				return 0;
+			}
+		}
+	}
+	#endif
 
 	/* Grab the bits from PHYIR2, and put them in the lower half */
-	phy_reg = mdiobus_read(bus, addr, MII_PHYSID2);
-	if (phy_reg < 0)
+	if (phy_reg_upper < 0 || phy_reg_lower < 0)
 		return -EIO;
 
-	*phy_id |= (phy_reg & 0xffff);
-
+	*phy_id = id;
 	return 0;
 }
 

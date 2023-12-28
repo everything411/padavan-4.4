@@ -1223,7 +1223,9 @@ void pse_qdma_drop_cnt(void)
 
 void external_gsw_cnt_read(void)
 {
+#if !defined (CONFIG_RAETH_ESW_CONTROL)
 	rtk_hal_dump_mib();
+#endif
 }
 
 void embedded_sw_cnt_read(struct seq_file *seq)

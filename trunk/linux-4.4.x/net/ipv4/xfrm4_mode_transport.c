@@ -23,7 +23,29 @@ static int xfrm4_transport_output(struct xfrm_state *x, struct sk_buff *skb)
 	struct iphdr *iph = ip_hdr(skb);
 	int ihl = iph->ihl * 4;
 
+#if defined (CONFIG_RALINK_HWCRYPTO) || defined (CONFIG_RALINK_HWCRYPTO_MODULE)
+	{
+		int offset = 0;
+		if (x->props.mode == XFRM_MODE_TUNNEL)
+		{	
+			if (x->encap)
+				offset = 20+8;
+			else
+				offset = 20;
+		}
+		else
+		{
+			if (x->encap)
+				offset = 8;
+			else
+				offset = 0;
+		}		
+		skb_set_network_header(skb, -offset);
+	}
+#else
 	skb_set_network_header(skb, -x->props.header_len);
+#endif
+
 	skb->mac_header = skb->network_header +
 			  offsetof(struct iphdr, protocol);
 	skb->transport_header = skb->network_header + ihl;

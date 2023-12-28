@@ -1157,7 +1157,7 @@ static void ppp_dev_priv_destructor(struct net_device *dev)
 
 static int ppp_hnat_check(struct hnat_hw_path *path)
 {
-        struct ppp *ppp = netdev_priv(path->dev);
+        struct ppp *ppp = netdev_priv(path->real_dev);
         struct ppp_channel *chan;
         struct channel *pch;
 
@@ -1168,7 +1168,12 @@ static int ppp_hnat_check(struct hnat_hw_path *path)
                 return -ENODEV;
 
         pch = list_first_entry(&ppp->channels, struct channel, clist);
+		if (!pch)
+				return -EOPNOTSUPP;
         chan = pch->chan;
+        // Add by sungeyu: chan==NULL while at bt test case
+        if (!chan || !chan->ops)
+                return -EOPNOTSUPP;
         if (!chan->ops->hnat_check)
                 return -EOPNOTSUPP;
 

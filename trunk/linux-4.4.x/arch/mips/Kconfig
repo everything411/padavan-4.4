@@ -3122,3 +3122,7 @@ source "crypto/Kconfig"
 source "lib/Kconfig"
 
 source "arch/mips/kvm/Kconfig"
+
+#source "ralink/Kconfig"
+
+#source "ralink/Kconfig.misc"

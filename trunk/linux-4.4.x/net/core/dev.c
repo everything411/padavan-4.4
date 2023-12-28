@@ -137,6 +137,9 @@
 #include <linux/errqueue.h>
 #include <linux/hrtimer.h>
 #include <linux/netfilter_ingress.h>
+#if defined(CONFIG_IMQ) || defined(CONFIG_IMQ_MODULE)
+#include <linux/imq.h>
+#endif
 
 #include "net-sysfs.h"
 
@@ -1913,9 +1916,12 @@ again:
 		 */
 		skb_reset_mac_header(skb2);
 
+		if (skb_network_header(skb2) == skb2->head)
+			skb_reset_network_header(skb2);
+
 		if (skb_network_header(skb2) < skb2->data ||
 		    skb_network_header(skb2) > skb_tail_pointer(skb2)) {
-			net_crit_ratelimited("protocol %04x is buggy, dev %s\n",
+			net_info_ratelimited("protocol %04x is buggy, dev %s\n",
 					     ntohs(skb2->protocol),
 					     dev->name);
 			skb_reset_network_header(skb2);
@@ -2778,8 +2784,13 @@ static int xmit_one(struct sk_buff *skb, struct net_device *dev,
 	 */
 	if (!skb->fast_forwarded) {
 #endif
-	if (!list_empty(&ptype_all) || !list_empty(&dev->ptype_all))
-		dev_queue_xmit_nit(skb, dev);
+#if defined(CONFIG_IMQ) || defined(CONFIG_IMQ_MODULE)
+		if ((!list_empty(&ptype_all) || !list_empty(&dev->ptype_all)) &&
+			!(skb->imq_flags & IMQ_F_ENQUEUE))
+#else
+		if (!list_empty(&ptype_all) || !list_empty(&dev->ptype_all))
+#endif
+			dev_queue_xmit_nit(skb, dev);
 #ifdef CONFIG_SHORTCUT_FE
 	}
 #endif
@@ -2818,6 +2829,9 @@ out:
 	*ret = rc;
 	return skb;
 }
+#if defined(CONFIG_IMQ) || defined(CONFIG_IMQ_MODULE)
+EXPORT_SYMBOL_GPL(dev_hard_start_xmit);
+#endif
 
 static struct sk_buff *validate_xmit_vlan(struct sk_buff *skb,
 					  netdev_features_t features)
@@ -3952,9 +3966,11 @@ another_round:
 
 #ifdef CONFIG_SHORTCUT_FE
 	fast_recv = rcu_dereference(athrs_fast_nat_recv);
-	if (fast_recv && fast_recv(skb)) {
-		ret = NET_RX_SUCCESS;
-		goto out;
+	if (fast_recv) {
+		if (fast_recv(skb)) {
+			ret = NET_RX_SUCCESS;
+			goto out;
+		}
 	}
 #endif
 

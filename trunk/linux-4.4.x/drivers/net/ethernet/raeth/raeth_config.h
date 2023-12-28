@@ -19,6 +19,7 @@
 #define DELAY_INT
 
 #define CONFIG_RAETH_RW_PDMAPTR_FROM_VAR
+#define CONFIG_QDMA_SUPPORT_QOS
 /*#define CONFIG_QDMA_QOS_WEB*/
 #define CONFIG_QDMA_QOS_MARK
 
@@ -51,7 +52,7 @@
 /*#define CONFIG_RAETH_QDMATX_QDMARX*/
 /*#define CONFIG_HW_SFQ*/
 #define CONFIG_RAETH_HW_IOCOHERENT
-#define	CONFIG_RAETH_GMAC2
+/*#define	CONFIG_RAETH_GMAC2*/
 /*#define CONFIG_RAETH_RSS_4RING*/
 /*#define CONFIG_RAETH_RSS_2RING*/
 /* definitions */
@@ -186,7 +187,8 @@
 #else
 #define TASKLET_WORKQUEUE_SW	(0)
 #endif
-#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
+#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE) || \
+    defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
 #define FE_HW_NAT	BIT(25)
 #else
 #define FE_HW_NAT	(0)
@@ -209,7 +211,7 @@
 #ifdef	CONFIG_QDMA_SUPPORT_QOS
 #define FE_QDMA_FQOS	BIT(29)
 #else
-#define FE_QDMA_FQOS	BIT(29)
+#define FE_QDMA_FQOS	(0)
 #endif
 
 #ifdef	CONFIG_QDMA_QOS_WEB

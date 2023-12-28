@@ -826,6 +826,44 @@ out_unlock:
 }
 EXPORT_SYMBOL_GPL(get_mtd_device_nm);
 
+/**
+ *	get_mtd_device_by_node - obtain a validated handle for an MTD device
+ *	by of_node
+ *	@of_node: OF node of MTD device to open
+ *
+ *	This function returns an MTD device structure in case of success,
+ *	an error code otherwise.
+ */
+struct mtd_info *get_mtd_device_by_node(const struct device_node *of_node)
+{
+	struct mtd_info *mtd;
+	bool found = false;
+	int ret;
+
+	mutex_lock(&mtd_table_mutex);
+
+	mtd_for_each_device(mtd) {
+		if (of_node == mtd->dev.of_node) {
+			found = true;
+			break;
+		}
+	}
+
+	if (found)
+		ret = __get_mtd_device(mtd);
+
+	mutex_unlock(&mtd_table_mutex);
+
+	if (!found)
+		return ERR_PTR(-ENODEV);
+
+	if (ret)
+		return ERR_PTR(ret);
+
+	return mtd;
+}
+EXPORT_SYMBOL_GPL(get_mtd_device_by_node);
+
 void put_mtd_device(struct mtd_info *mtd)
 {
 	mutex_lock(&mtd_table_mutex);
@@ -919,6 +957,40 @@ unsigned long mtd_get_unmapped_area(struct mtd_info *mtd, unsigned long len,
 }
 EXPORT_SYMBOL_GPL(mtd_get_unmapped_area);
 
+/*
+ * LEDE OpenWRT split rootfs from Kernel partition, to split rootfs,
+ * nand check bad is necessary, to read bad block marker, nfc has to
+ * read the data and mark swap, this take a lot of time, to reduce
+ * nand flash access, use a table to store the result of bad blocks.
+ */
+static int lede_split_isbad(struct mtd_info *mtd, loff_t ofs)
+{
+	static unsigned int split_isbad_init;
+	static u_char *tbl;
+	static unsigned int kofs;
+	unsigned int size, index;
+	int ret;
+
+	if (!split_isbad_init) {
+		kofs = (unsigned int) mtdpart_get_offset(mtd);
+		split_isbad_init = 1;
+		size = (unsigned int)mtd->size >> mtd->erasesize_shift;
+		tbl = kmalloc(size, GFP_KERNEL);
+		memset(tbl, 0xff, size);
+	}
+
+	index = (unsigned int)(ofs + mtdpart_get_offset(mtd) - kofs)
+			      >> mtd->erasesize_shift;
+	if (tbl[index] == 0xff) {
+		ret = mtd_block_isbad(mtd, ofs);
+		tbl[index] = (u_char)ret;
+	} else {
+		ret = (int) tbl[index];
+	}
+
+	return ret;
+}
+
 /* Learn total bad block number before access offs+len */
 int mtd_countbad(struct mtd_info *mtd, loff_t offs, unsigned int len)
 {
@@ -926,10 +998,10 @@ int mtd_countbad(struct mtd_info *mtd, loff_t offs, unsigned int len)
 	loff_t offset = 0;
 
 	while ((offs + len) > offset) {
-		if (mtd_block_isbad(mtd, offset) > 0) {
+		if (lede_split_isbad(mtd, offset) > 0) {
 			bad++;
 			offs += mtd->erasesize;
-		} else if (mtd_block_isbad(mtd, offset) < 0) {
+		} else if (lede_split_isbad(mtd, offset) < 0) {
 			pr_err("len should not be over partition end\n");
 			return bad;
 		}

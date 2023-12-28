@@ -19,6 +19,8 @@
 #include <net/switchdev.h>
 #include <linux/if_bridge.h>
 #include <linux/netpoll.h>
+#include <linux/netfilter.h>
+#include <net/netfilter/nf_hnat.h>
 #include "dsa_priv.h"
 
 /* slave mii_bus handling ***************************************************/
@@ -912,6 +914,24 @@ static const struct ethtool_ops dsa_slave_ethtool_ops = {
 	.get_eee		= dsa_slave_get_eee,
 };
 
+static int dsa_hnat_check(struct hnat_hw_path *path)
+{
+	struct net_device *dev = path->real_dev;
+	struct dsa_slave_priv *p = netdev_priv(dev);
+
+	if (!(path->flags & HNAT_PATH_ETHERNET))
+		return -EINVAL;
+
+	path->dsa_port = p->port;
+	path->real_dev = p->parent->dst->master_netdev;
+	path->flags |= HNAT_PATH_DSA;
+
+	if (path->real_dev->netdev_ops->ndo_hnat_check)
+		return path->real_dev->netdev_ops->ndo_hnat_check(path);
+
+	return 0;
+}
+
 static const struct net_device_ops dsa_slave_netdev_ops = {
 	.ndo_open	 	= dsa_slave_open,
 	.ndo_stop		= dsa_slave_close,
@@ -932,6 +952,7 @@ static const struct net_device_ops dsa_slave_netdev_ops = {
 	.ndo_bridge_getlink	= switchdev_port_bridge_getlink,
 	.ndo_bridge_setlink	= switchdev_port_bridge_setlink,
 	.ndo_bridge_dellink	= switchdev_port_bridge_dellink,
+	.ndo_hnat_check = dsa_hnat_check,
 };
 
 static const struct switchdev_ops dsa_slave_switchdev_ops = {

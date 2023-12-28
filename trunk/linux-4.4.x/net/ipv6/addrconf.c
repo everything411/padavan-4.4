@@ -289,8 +289,7 @@ static struct ipv6_devconf ipv6_devconf_dflt __read_mostly = {
 	.ignore_routes_with_linkdown = 0,
 };
 
-/* Check if a valid qdisc is available */
-
+/* Check if link is ready: is it up and is a valid qdisc available */
 // mark@wdl, copy from linux-4.9.162 for CE LOGO test wan_rfc4862.
 // some race condition casue only check qdisc_tx_is_noop() isn't correct.
 static inline bool addrconf_link_ready(const struct net_device *dev)
@@ -1860,7 +1859,7 @@ void addrconf_dad_failure(struct inet6_ifaddr *ifp)
 	}
 
 	net_info_ratelimited("%s: IPv6 duplicate address %pI6c detected!\n",
-                            ifp->idev->dev->name, &ifp->addr);
+			     ifp->idev->dev->name, &ifp->addr);
 
 	spin_lock_bh(&ifp->lock);
 
@@ -3264,11 +3263,11 @@ static int addrconf_notify(struct notifier_block *this, unsigned long event,
 			   void *ptr)
 {
 	struct net_device *dev = netdev_notifier_info_to_dev(ptr);
+	struct netdev_notifier_change_info *change_info;
 	struct inet6_dev *idev = __in6_dev_get(dev);
 	struct net *net = dev_net(dev);
 	int run_pending = 0;
 	int err;
-
 
 	switch (event) {
 	case NETDEV_REGISTER:
@@ -3320,7 +3319,7 @@ static int addrconf_notify(struct notifier_block *this, unsigned long event,
 			if (!addrconf_link_ready(dev)) {
 				/* device is not ready yet. */
 				pr_info("ADDRCONF(NETDEV_UP): %s: link is not ready\n",
-                                       dev->name);
+					dev->name);
 				break;
 			}
 
@@ -3345,19 +3344,21 @@ static int addrconf_notify(struct notifier_block *this, unsigned long event,
 					 * multicast snooping switches
 					 */
 					ipv6_mc_up(idev);
+					change_info = ptr;
+					if (change_info->flags_changed & IFF_NOARP) {
+						addrconf_dad_run(idev, true);
 
 					// mark@wdl, copy from linux-4.20.15 for CE LOGO test wan_rfc4862.
 					// sometimes the linklocal addr geneated without DAD, restart DAD work to fix it.
 					pr_info("ADDRCONF(NETDEV_CHANGE): %s: but flags ready, restart dad work\n", 
 					            dev->name);
 
-					addrconf_dad_run(idev, true);
-                    
+					} //addrconf_dad_run(idev, true);
 					break;
 				}
 				idev->if_flags |= IF_READY;
 			}
-            
+
 			pr_info("ADDRCONF(NETDEV_CHANGE): %s: link becomes ready\n",
 				dev->name);
 
@@ -3385,7 +3386,7 @@ static int addrconf_notify(struct notifier_block *this, unsigned long event,
 		}
 
 		if (!IS_ERR_OR_NULL(idev)) {
-			if (run_pending) 
+			if (run_pending)
 				addrconf_dad_run(idev, false);
 
 			/*
@@ -3647,9 +3648,8 @@ static void addrconf_dad_kick(struct inet6_ifaddr *ifp, unsigned long delay)
 	}
 	else
 		rand_num = delay;
-    
-	ifp->dad_probes = idev->cnf.dad_transmits;
 
+	ifp->dad_probes = idev->cnf.dad_transmits;
 	addrconf_mod_dad_work(ifp, rand_num);
 }
 
@@ -3744,7 +3744,6 @@ static void addrconf_dad_work(struct work_struct *w)
 		DAD_ABORT,
 	} action = DAD_PROCESS;
 
-
 	rtnl_lock();
 
 	spin_lock_bh(&ifp->lock);
@@ -3775,7 +3774,7 @@ static void addrconf_dad_work(struct work_struct *w)
 		write_unlock_bh(&idev->lock);
 		goto out;
 	}
-    
+
 	spin_lock(&ifp->lock);
 	if (ifp->state == INET6_IFADDR_STATE_DEAD) {
 		spin_unlock(&ifp->lock);
@@ -3790,8 +3789,10 @@ static void addrconf_dad_work(struct work_struct *w)
 
 		ifp->flags &= ~(IFA_F_TENTATIVE|IFA_F_OPTIMISTIC|IFA_F_DADFAILED);
 		spin_unlock(&ifp->lock);
-		write_unlock_bh(&idev->lock); 
+		write_unlock_bh(&idev->lock);
+
 		addrconf_dad_completed(ifp);
+
 		goto out;
 	}
 
@@ -3803,9 +3804,7 @@ static void addrconf_dad_work(struct work_struct *w)
 
 	/* send a neighbour solicitation for our addr */
 	addrconf_addr_solict_mult(&ifp->addr, &mcaddr);
-
 	pr_debug("addrconf_dad_work: send ns, %s: addr=%pI6c\n", idev->dev->name, &ifp->addr);
-    
 	ndisc_send_ns(ifp->idev->dev, &ifp->addr, &mcaddr, &in6addr_any);
 out:
 	in6_ifa_put(ifp);
@@ -3901,12 +3900,25 @@ static void addrconf_dad_run(struct inet6_dev *idev, bool restart)
 		// CE LOGO test lan_rfc4862, The NS of eth0 DAD sometimes send out success, 
 		// but after 5s TN send NS.  At this time, the eth0 was added in br-lan and br-lan was not ready.
 		// eth0 can't response the NS.
-		if (0 == strcmp(idev->dev->name, "eth2")) {
+#if defined(CONFIG_SUPPORT_OPENWRT)
+		//if (0 == strcmp(idev->dev->name, "eth0")) {
+		if (0 == strcmp(idev->dev->name, "eth0.1")) {
+#else
+		//if (0 == strcmp(idev->dev->name, "eth2")) {
+		if (0 == strcmp(idev->dev->name, "eth2.1")) {
+#endif
 			return;
 		}
 		// delay WAN & LAN DAD sending.
-		if (0 == strcmp(idev->dev->name, "eth3")
+#if defined(CONFIG_SUPPORT_OPENWRT)
+		//if (0 == strcmp(idev->dev->name, "eth1")
+		if (0 == strcmp(idev->dev->name, "eth0.2")
+				|| 0 == strcmp(idev->dev->name, "br-lan")) {
+#else
+		//if (0 == strcmp(idev->dev->name, "eth3")
+		if (0 == strcmp(idev->dev->name, "eth2.2")
 				|| 0 == strcmp(idev->dev->name, "br0")) {
+#endif
 			delay = 6000; // ms
 		}
 	}
@@ -3914,16 +3926,16 @@ static void addrconf_dad_run(struct inet6_dev *idev, bool restart)
 	read_lock_bh(&idev->lock);
 	list_for_each_entry(ifp, &idev->addr_list, if_list) {
 		spin_lock(&ifp->lock);
-		if (ifp->flags & IFA_F_TENTATIVE &&
-		    ifp->state == INET6_IFADDR_STATE_DAD)
-		    if (restart)
+		if ((ifp->flags & IFA_F_TENTATIVE &&
+		     ifp->state == INET6_IFADDR_STATE_DAD) || restart) {
+			if (restart)
 				ifp->state = INET6_IFADDR_STATE_PREDAD;
 			addrconf_dad_kick(ifp, delay);
+		}
 		spin_unlock(&ifp->lock);
 	}
 	read_unlock_bh(&idev->lock);
 }
-
 
 #ifdef CONFIG_PROC_FS
 struct if6_iter_state {

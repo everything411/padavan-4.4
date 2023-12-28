@@ -700,7 +700,10 @@ gen_ralink_config(int is_soc_ap, int is_aband, int disable_autoscan)
 	fprintf(fp, "PcieAspm=%d\n", 0);
 	fprintf(fp, "ThermalRecal=%d\n", 0);
 	fprintf(fp, "WCNTest=%d\n", 0);
-	fprintf(fp, "WHNAT=%d\n", 0);
+
+	//WHNAT
+	i_val = nvram_wlan_get_int(is_aband, "HT_WHNAT");
+	fprintf(fp, "WHNAT=%d\n", i_val);
 	fprintf(fp, "BandDisabled=%d\n", 0);
 	fprintf(fp, "DfsDedicatedZeroWait=%d\n", 0);
 	fprintf(fp, "DfsZeroWaitDefault=%d\n", 0);

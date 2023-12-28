@@ -1678,6 +1678,8 @@ struct xhci_driver_overrides {
 	int (*start)(struct usb_hcd *hcd);
 };
 
+extern int u3intf;
+
 #define	XHCI_CFC_DELAY		10
 
 /* convert between an HCD pointer and the corresponding EHCI_HCD */

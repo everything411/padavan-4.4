@@ -174,5 +174,6 @@ set_vpn_balancing(const char *vpn_ifname, int is_server)
 void
 set_pppoe_balancing()
 {
+	rps_queue_set(IFNAME_MAC, PPPOE_RPS_MAP);
 	rps_queue_set(IFNAME_MAC2, PPPOE_RPS_MAP);
 }

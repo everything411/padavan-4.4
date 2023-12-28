@@ -125,6 +125,11 @@ config ICPLUS_PHY
 	tristate "Drivers for ICPlus PHYs"
 	---help---
 	  Currently supports the IP175C and IP1001 PHYs.
+	  
+config AIROHA_PHY
+	tristate "Drivers for Airoha PHYs"
+	---help---
+	  Currently supports the EN8801S PHY.	  
 
 config REALTEK_PHY
 	tristate "Drivers for Realtek PHYs"
@@ -250,6 +255,26 @@ config MDIO_BUS_MUX_MMIOREG
 	  Currently, only 8-bit registers are supported.
 
 source "drivers/net/phy/mtk/mt753x/Kconfig"
+
+config RTL8367S_GSW
+	tristate "rtl8367 Gigabit Switch support for mt7622"
+	depends on NET_VENDOR_MEDIATEK
+	help
+	  This driver supports rtl8367s in mt7622
+
+config MTK_GPHY
+    tristate "Drivers for Mediatek internal Gigabit PHY"
+    default y
+    ---help---
+      Driver for Mediatek internal Gigabit PHY with 1000M/100M/10M and
+      paue asym_pause capability.
+      Currently supports the mt7621, mt7530, mt7531, mt7629.
+
+config MTK_FE_GPHY
+	tristate "Driver for mediatek internal FE GPHY"
+	depends on NET_VENDOR_MEDIATEK
+	help
+	  Driver for Mediatek internal FE GPHY
 
 config MDIO_BCM_UNIMAC
 	tristate "Broadcom UniMAC MDIO bus controller"

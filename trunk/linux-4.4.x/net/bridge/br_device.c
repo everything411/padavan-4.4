@@ -18,6 +18,8 @@
 #include <linux/ethtool.h>
 #include <linux/list.h>
 #include <linux/netfilter_bridge.h>
+#include <linux/netfilter.h>
+#include <net/netfilter/nf_hnat.h>
 
 #include <asm/uaccess.h>
 #include "br_private.h"
@@ -323,6 +325,26 @@ static const struct ethtool_ops br_ethtool_ops = {
 	.get_link	= ethtool_op_get_link,
 };
 
+static int br_hnat_check(struct hnat_hw_path *path)
+{
+	struct net_device *dev = path->real_dev;
+	struct net_bridge *br = netdev_priv(dev);
+	struct net_bridge_fdb_entry *dst;
+
+	if (!(path->flags & HNAT_PATH_ETHERNET))
+		return -EINVAL;
+
+	dst = __br_fdb_get(br, path->eth_dest, path->vlan_id);
+	if (!dst || !dst->dst)
+		return -ENOENT;
+
+	path->real_dev = dst->dst->dev;
+	if (path->real_dev->netdev_ops->ndo_hnat_check)
+		return path->real_dev->netdev_ops->ndo_hnat_check(path);
+
+	return 0;
+}
+
 static const struct net_device_ops br_netdev_ops = {
 	.ndo_open		 = br_dev_open,
 	.ndo_stop		 = br_dev_stop,
@@ -349,6 +371,7 @@ static const struct net_device_ops br_netdev_ops = {
 	.ndo_bridge_setlink	 = br_setlink,
 	.ndo_bridge_dellink	 = br_dellink,
 	.ndo_features_check	 = passthru_features_check,
+	.ndo_hnat_check	 = br_hnat_check,
 };
 
 static void br_dev_free(struct net_device *dev)

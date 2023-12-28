@@ -247,7 +247,7 @@ static int m25p_remove(struct spi_device *spi)
 
 static void m25p_shutdown(struct spi_device *spi)
 {
-	struct m25p	*flash = spi_get_drvdata(spi);
+	struct m25p *flash = spi_get_drvdata(spi);
 
 	spi_nor_restore(&flash->spi_nor);
 }
@@ -315,7 +315,7 @@ static struct spi_driver m25p80_driver = {
 	.id_table	= m25p_ids,
 	.probe	= m25p_probe,
 	.remove	= m25p_remove,
-	.shutdown = m25p_shutdown,
+	.shutdown	= m25p_shutdown,
 
 	/* REVISIT: many of these chips have deep power-down modes, which
 	 * should clearly be entered on suspend() to minimize power use.

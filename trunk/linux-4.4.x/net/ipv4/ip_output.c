@@ -82,6 +82,14 @@
 
 #include <net/ra_nat.h>
 
+#ifdef PGB_QUICK_PATH
+#include <linux/swrt_fastpath/fast_path.h>
+#endif
+#ifdef CONFIG_NF_SHORTCUT_HOOK
+extern int (*smb_nf_local_out_hook)(struct sk_buff *skb);
+extern int (*smb_nf_post_routing_hook)(struct sk_buff *skb);
+#endif
+
 int sysctl_ip_default_ttl __read_mostly = IPDEFTTL;
 EXPORT_SYMBOL(sysctl_ip_default_ttl);
 
@@ -106,7 +114,16 @@ int __ip_local_out(struct net *net, struct sock *sk, struct sk_buff *skb)
 	ip_send_check(iph);
 
 	skb->protocol = htons(ETH_P_IP);
-
+#ifdef PGB_QUICK_PATH
+	if (SWRT_FASTPATH(skb))
+		return dst_output(net, sk, skb);
+	else 
+#endif 
+#ifdef CONFIG_NF_SHORTCUT_HOOK
+	if (smb_nf_local_out_hook && smb_nf_local_out_hook(skb))
+		return dst_output(net, sk, skb);
+	else 
+#endif 
 	return nf_hook(NFPROTO_IPV4, NF_INET_LOCAL_OUT,
 		       net, sk, skb, NULL, skb_dst(skb)->dev,
 		       dst_output);
@@ -346,6 +363,16 @@ int ip_mc_output(struct net *net, struct sock *sk, struct sk_buff *skb)
 				dev_loopback_xmit);
 	}
 
+#ifdef PGB_QUICK_PATH
+	if (SWRT_FASTPATH(skb))
+		return ip_finish_output(net, sk, skb);
+	else 
+#endif
+/*#ifdef CONFIG_NF_SHORTCUT_HOOK
+	if (smb_nf_post_routing_hook && smb_nf_post_routing_hook(skb))
+		return ip_finish_output(net, sk, skb);
+	else 
+#endif*/
 	return NF_HOOK_COND(NFPROTO_IPV4, NF_INET_POST_ROUTING,
 			    net, sk, skb, NULL, skb->dev,
 			    ip_finish_output,
@@ -361,6 +388,16 @@ int ip_output(struct net *net, struct sock *sk, struct sk_buff *skb)
 	skb->dev = dev;
 	skb->protocol = htons(ETH_P_IP);
 
+#ifdef PGB_QUICK_PATH
+	if (SWRT_FASTPATH(skb))
+		return ip_finish_output(net, sk, skb);
+	else 
+#endif
+#ifdef CONFIG_NF_SHORTCUT_HOOK
+	if (smb_nf_post_routing_hook && smb_nf_post_routing_hook(skb))
+		return ip_finish_output(net, sk, skb);
+	else 
+#endif
 	return NF_HOOK_COND(NFPROTO_IPV4, NF_INET_POST_ROUTING,
 			    net, sk, skb, NULL, dev,
 			    ip_finish_output,
@@ -461,8 +498,11 @@ packet_routed:
 	skb->mark = sk->sk_mark;
 
 	/* hw_nat use*/
+#if defined (CONFIG_RA_HW_NAT_PPTP_L2TP)
 	hwnat_set_l2tp_unhit(iph, skb);
+#else
 	hwnat_check_magic_tag(skb);
+#endif
 
 	res = ip_local_out(net, sk, skb);
 	rcu_read_unlock();

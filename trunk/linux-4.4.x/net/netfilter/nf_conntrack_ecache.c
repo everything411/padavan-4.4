@@ -125,9 +125,10 @@ void nf_ct_deliver_cached_events(struct nf_conn *ct)
 	struct nf_conntrack_ecache *e;
 	struct nf_ct_event item;
 	struct net *net = nf_ct_net(ct);
+	int ret = 0;
 
 	e = nf_ct_ecache_find(ct);
-	if (e == NULL)
+	if (!e)
 		return;
 
 	events = xchg(&e->cache, 0);
@@ -135,9 +136,11 @@ void nf_ct_deliver_cached_events(struct nf_conn *ct)
 	if (!nf_ct_is_confirmed(ct) || nf_ct_is_dying(ct) || !events)
 		return;
 
-	/* We make a copy of the missed event cache without taking
+	/*
+	 * We make a copy of the missed event cache without taking
 	 * the lock, thus we may send missed events twice. However,
-	 * this does not harm and it happens very rarely. */
+	 * this does not harm and it happens very rarely.
+	 */
 	missed = e->missed;
 
 	if (!((events | missed) & e->ctmask))
@@ -148,13 +151,15 @@ void nf_ct_deliver_cached_events(struct nf_conn *ct)
 	item.report = 0;
 
 	atomic_notifier_call_chain(&net->ct.nf_conntrack_chain,
-			events | missed,
-			&item);
+				   events | missed, &item);
 
-	if (likely(!missed))
+	if (likely(ret >= 0 && !missed))
 		return;
 
 	spin_lock_bh(&ct->lock);
+	if (ret < 0)
+		e->missed |= events;
+	else
 		e->missed &= ~missed;
 	spin_unlock_bh(&ct->lock);
 }
@@ -170,11 +175,7 @@ void nf_ct_deliver_cached_events(struct nf_conn *ct)
 
 	rcu_read_lock();
 	notify = rcu_dereference(net->ct.nf_conntrack_event_cb);
-#ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
-	if ((notify == NULL) && !rcu_dereference_raw(net->ct.nf_conntrack_chain.head))
-#else
 	if (notify == NULL)
-#endif
 		goto out_unlock;
 
 	e = nf_ct_ecache_find(ct);
@@ -198,15 +199,7 @@ void nf_ct_deliver_cached_events(struct nf_conn *ct)
 	item.portid = 0;
 	item.report = 0;
 
-#ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
-	ret = atomic_notifier_call_chain(&net->ct.nf_conntrack_chain,
-			events | missed,
-			&item);
-	if (notify != NULL)
-		ret = notify->fcn(events | missed, &item);
-#else
 	ret = notify->fcn(events | missed, &item);
-#endif
 
 	if (likely(ret >= 0 && !missed))
 		goto out_unlock;
@@ -227,13 +220,8 @@ EXPORT_SYMBOL_GPL(nf_ct_deliver_cached_events);
 #ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
 int nf_conntrack_register_notifier(struct net *net, struct notifier_block *nb)
 {
-        return atomic_notifier_chain_register(&net->ct.nf_conntrack_chain, nb);
-}
-int nf_conntrack_register_chain_notifier(struct net *net, struct notifier_block *nb)
-{
 	return atomic_notifier_chain_register(&net->ct.nf_conntrack_chain, nb);
 }
-EXPORT_SYMBOL_GPL(nf_conntrack_register_chain_notifier);
 #else
 int nf_conntrack_register_notifier(struct net *net,
 				   struct nf_ct_event_notifier *new)
@@ -261,13 +249,9 @@ EXPORT_SYMBOL_GPL(nf_conntrack_register_notifier);
 #ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
 int nf_conntrack_unregister_notifier(struct net *net, struct notifier_block *nb)
 {
-	return atomic_notifier_chain_unregister(&net->ct.nf_conntrack_chain, nb);
+	return atomic_notifier_chain_unregister(&net->ct.nf_conntrack_chain,
+						nb);
 }
-int nf_conntrack_unregister_chain_notifier(struct net *net, struct notifier_block *nb)
-{
-	return atomic_notifier_chain_unregister(&net->ct.nf_conntrack_chain, nb);
-}
-EXPORT_SYMBOL_GPL(nf_conntrack_unregister_chain_notifier);
 #else
 void nf_conntrack_unregister_notifier(struct net *net,
 				      struct nf_ct_event_notifier *new)

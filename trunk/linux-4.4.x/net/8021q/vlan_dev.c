@@ -762,7 +762,7 @@ static int vlan_dev_get_iflink(const struct net_device *dev)
 
 static int vlan_dev_hnat_check(struct hnat_hw_path *path)
 {
-	struct net_device *dev = path->dev;
+	struct net_device *dev = path->real_dev;
 	struct vlan_dev_priv *vlan = vlan_dev_priv(dev);
 
 	if (path->flags & HNAT_PATH_VLAN)
@@ -771,7 +771,8 @@ static int vlan_dev_hnat_check(struct hnat_hw_path *path)
 	path->flags |= HNAT_PATH_VLAN;
 	path->vlan_proto = vlan->vlan_proto;
 	path->vlan_id = vlan->vlan_id;
-	path->dev = vlan->real_dev;
+	path->virt_dev = dev;
+	path->real_dev = vlan->real_dev;
 
 	if (vlan->real_dev->netdev_ops->ndo_hnat_check)
 		return vlan->real_dev->netdev_ops->ndo_hnat_check(path);

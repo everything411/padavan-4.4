@@ -93,6 +93,7 @@
 #include <linux/nsproxy.h>
 #include <net/net_namespace.h>
 #include <net/netns/generic.h>
+#include <net/netfilter/nf_hnat.h>
 #include <net/dst.h>
 #include <net/ip.h>
 #include <net/udp.h>
@@ -131,9 +132,12 @@ struct pppol2tp_session {
 };
 
 static int pppol2tp_xmit(struct ppp_channel *chan, struct sk_buff *skb);
+static int l2tp_ppp_hnat_check(struct ppp_channel *chan,
+				       struct hnat_hw_path *path);
 
 static const struct ppp_channel_ops pppol2tp_chan_ops = {
 	.start_xmit =  pppol2tp_xmit,
+	.hnat_check = l2tp_ppp_hnat_check,
 };
 
 static const struct proto_ops pppol2tp_ops;
@@ -368,6 +372,24 @@ error:
 	return error;
 }
 
+static int l2tp_ppp_hnat_check(struct ppp_channel *chan,
+				       struct hnat_hw_path *path)
+{
+	struct sock *sk = (struct sock *)chan->private;
+	struct l2tp_session *session;
+
+	if (path->flags & HNAT_PATH_TNL)
+		return -EEXIST;
+
+	session = pppol2tp_sock_to_session(sk);
+	if (!session)
+		return -EINVAL;
+
+	path->flags |= HNAT_PATH_TNL;
+
+	return 0;
+}
+
 /* Transmit function called by generic PPP driver.  Sends PPP frame
  * over PPPoL2TP socket.
  *
@@ -409,7 +431,7 @@ static int pppol2tp_xmit(struct ppp_channel *chan, struct sk_buff *skb)
 		goto abort_put_sess;
 
 	uhlen = (tunnel->encap == L2TP_ENCAPTYPE_UDP) ? sizeof(struct udphdr) : 0;
-	headroom = NET_SKB_PAD +
+	headroom = NET_SKB_PAD_ORIG +
 		   sizeof(struct iphdr) + /* IP header */
 		   uhlen +		/* UDP header (if L2TP_ENCAPTYPE_UDP) */
 		   session->hdr_len +	/* L2TP header */
@@ -1168,6 +1190,25 @@ static int pppol2tp_tunnel_ioctl(struct l2tp_tunnel *tunnel,
 			err = -EFAULT;
 			break;
 		}
+#if defined(CONFIG_BCM_KF_MISC_BACKPORTS)
+		if (stats.session_id != 0) {
+			/* resend to session ioctl handler */
+			struct l2tp_session *session =
+				l2tp_session_get(sock_net(sk), tunnel,
+						 stats.session_id, true);
+
+			if (session) {
+				err = pppol2tp_session_ioctl(session, cmd,
+							     arg);
+				if (session->deref)
+					session->deref(session);
+				l2tp_session_dec_refcount(session);
+			} else {
+				err = -EBADR;
+			}
+			break;
+		}
+#else
 		if (stats.session_id != 0) {
 			/* resend to session ioctl handler */
 			struct l2tp_session *session =
@@ -1178,6 +1219,7 @@ static int pppol2tp_tunnel_ioctl(struct l2tp_tunnel *tunnel,
 				err = -EBADR;
 			break;
 		}
+#endif
 #ifdef CONFIG_XFRM
 		stats.using_ipsec = (sk->sk_policy[0] || sk->sk_policy[1]) ? 1 : 0;
 #endif

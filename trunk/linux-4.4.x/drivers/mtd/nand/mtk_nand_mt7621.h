@@ -162,6 +162,12 @@ struct mtk_ecc {
 	u32 sectors;
 };
 
+struct mtk_nfc_page_buffer {
+	u8 ecc_on;
+	u8 unused[3];
+	u8 *buf;
+};
+
 struct mtk_nfc {
 	struct nand_hw_control controller;
 	struct mtk_ecc_config ecc_cfg;
@@ -176,7 +182,7 @@ struct mtk_nfc {
 
 	u8 *buffer;
 
-	u8 **block_buffer;
+	struct mtk_nfc_page_buffer *block_buffer;
 	u8 *pending_page;
 	u8 *pending_oob[2];
 };
@@ -193,5 +199,7 @@ int mtk_ecc_init(struct mtk_nfc *nfc, struct mtk_ecc *ecc,
 		 struct mtk_ecc_config *config);
 struct mtk_ecc *of_mtk_ecc_get(struct device_node *);
 void mtk_ecc_release(struct mtk_ecc *);
+int mtk_ecc_fixup_empty_step(struct mtk_ecc *ecc, struct nand_chip *chip,
+			     u32 fdm_size, void *buf, void *oob, void *eccp);
 
 #endif

@@ -11,11 +11,13 @@
 #include <linux/skbuff.h>
 #include <net/ra_nat.h>
 
+#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
 struct net_device	*dst_port[MAX_IF_NUM];
 EXPORT_SYMBOL(dst_port);
 
 struct foe_entry *ppe_virt_foe_base_tmp;
 EXPORT_SYMBOL(ppe_virt_foe_base_tmp);
+#endif
 
 int (*ra_sw_nat_hook_rx)(struct sk_buff *skb) = NULL;
 EXPORT_SYMBOL(ra_sw_nat_hook_rx);
@@ -29,6 +31,7 @@ EXPORT_SYMBOL(ppe_dev_unregister_hook);
 
 void  hwnat_magic_tag_set_zero(struct sk_buff *skb)
 {
+#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
 	if ((FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_PCI) ||
 	    (FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_WLAN) ||
 	    (FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_GE)) {
@@ -41,11 +44,17 @@ void  hwnat_magic_tag_set_zero(struct sk_buff *skb)
 		if (IS_SPACE_AVAILABLE_TAIL(skb))
 			FOE_MAGIC_TAG_TAIL(skb) = 0;
 	}
+#else
+	if (IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb) &&
+	    likely(IS_SPACE_AVAILABLE_HEAD(skb)))
+		FOE_ALG_HEAD(skb) = 1;
+#endif
 }
 EXPORT_SYMBOL(hwnat_magic_tag_set_zero);
 
 void hwnat_check_magic_tag(struct sk_buff *skb)
 {
+#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
 	if (IS_SPACE_AVAILABLE_HEAD(skb)) {
 		FOE_MAGIC_TAG_HEAD(skb) = 0;
 		FOE_AI_HEAD(skb) = UN_HIT;
@@ -54,11 +63,19 @@ void hwnat_check_magic_tag(struct sk_buff *skb)
 		FOE_MAGIC_TAG_TAIL(skb) = 0;
 		FOE_AI_TAIL(skb) = UN_HIT;
 	}
+#else
+	if (IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb) &&
+	    likely(IS_SPACE_AVAILABLE_HEAD(skb))) {
+		FOE_MAGIC_TAG_HEAD(skb) = 0;
+		FOE_AI_HEAD(skb) = UN_HIT;
+	}
+#endif
 }
 EXPORT_SYMBOL(hwnat_check_magic_tag);
 
 void hwnat_set_headroom_zero(struct sk_buff *skb)
 {
+#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
 	if (skb->cloned != 1) {
 		if (IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb) ||
 		    (FOE_MAGIC_TAG(skb) == FOE_MAGIC_PPE)) {
@@ -67,11 +84,20 @@ void hwnat_set_headroom_zero(struct sk_buff *skb)
 				       FOE_INFO_LEN);
 		}
 	}
+#else
+	if (skb->cloned != 1) {
+		if (IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb) &&
+		    likely(IS_SPACE_AVAILABLE_HEAD(skb)))
+				memset(FOE_INFO_START_ADDR_HEAD(skb), 0,
+				       FOE_INFO_LEN);
+	}
+#endif
 }
 EXPORT_SYMBOL(hwnat_set_headroom_zero);
 
 void hwnat_set_tailroom_zero(struct sk_buff *skb)
 {
+#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
 	if (skb->cloned != 1) {
 		if (IS_MAGIC_TAG_PROTECT_VALID_TAIL(skb) ||
 		    (FOE_MAGIC_TAG(skb) == FOE_MAGIC_PPE)) {
@@ -80,19 +106,24 @@ void hwnat_set_tailroom_zero(struct sk_buff *skb)
 				       FOE_INFO_LEN);
 		}
 	}
+#endif
 }
 EXPORT_SYMBOL(hwnat_set_tailroom_zero);
 
 void hwnat_copy_headroom(u8 *data, struct sk_buff *skb)
 {
+#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
 	memcpy(data, skb->head, FOE_INFO_LEN);
+#endif
 }
 EXPORT_SYMBOL(hwnat_copy_headroom);
 
 void hwnat_copy_tailroom(u8 *data, int size, struct sk_buff *skb)
 {
+#if defined(CONFIG_RA_HW_NAT) || defined(CONFIG_RA_HW_NAT_MODULE)
 	memcpy((data + size - FOE_INFO_LEN), (skb_end_pointer(skb) - FOE_INFO_LEN),
 	       FOE_INFO_LEN);
+#endif
 }
 EXPORT_SYMBOL(hwnat_copy_tailroom);
 

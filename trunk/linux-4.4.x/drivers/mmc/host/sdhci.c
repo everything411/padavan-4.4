@@ -1016,6 +1016,16 @@ void sdhci_send_command(struct sdhci_host *host, struct mmc_command *cmd)
 
 	WARN_ON(host->cmd);
 
+#if defined(CONFIG_BCM_KF_MISC_BACKPORTS)
+	/* Initially, a command has no error */
+	cmd->error = 0;
+
+	/* Force R1b response onto all STOP commands */
+	if ((host->quirks2 & SDHCI_QUIRK2_STOP_WITH_TC) &&
+	    cmd->opcode == MMC_STOP_TRANSMISSION)
+		cmd->flags |= MMC_RSP_BUSY;
+#endif
+
 	/* Wait max 10 ms */
 	timeout = 10;
 
@@ -1110,7 +1120,9 @@ static void sdhci_finish_command(struct sdhci_host *host)
 		}
 	}
 
+#if !defined(CONFIG_BCM_KF_MISC_BACKPORTS)
 	host->cmd->error = 0;
+#endif
 
 	/* Finished CMD23, now send actual command. */
 	if (host->cmd == host->mrq->sbc) {
@@ -2407,10 +2419,18 @@ static void sdhci_cmd_irq(struct sdhci_host *host, u32 intmask, u32 *mask)
 
 		/* The controller does not support the end-of-busy IRQ,
 		 * fall through and take the SDHCI_INT_RESPONSE */
+#if defined(CONFIG_BCM_KF_MISC_BACKPORTS)
+		/* All STOP commands will have R1b responses forced on them
+		 * therefore any spurious TC before/after CC will be automatically
+		 * handled in sdhci_data_irq 
+		 */
+	}
+#else
 	} else if ((host->quirks2 & SDHCI_QUIRK2_STOP_WITH_TC) &&
 		   host->cmd->opcode == MMC_STOP_TRANSMISSION && !host->data) {
 		*mask &= ~SDHCI_INT_DATA_END;
 	}
+#endif
 
 	if (intmask & SDHCI_INT_RESPONSE)
 		sdhci_finish_command(host);

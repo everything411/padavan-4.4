@@ -773,6 +773,7 @@ static int mtk_nfc_write_subpage_hwecc(struct mtd_info *mtd,
 static int mtk_nfc_write_oob_std(struct mtd_info *mtd, struct nand_chip *chip,
 				 int page)
 {
+#ifndef CONFIG_MACH_MT7623 
 	int ret;
 
 	chip->cmdfunc(mtd, NAND_CMD_SEQIN, 0x00, page);
@@ -785,6 +786,9 @@ static int mtk_nfc_write_oob_std(struct mtd_info *mtd, struct nand_chip *chip,
 	ret = chip->waitfunc(mtd, chip);
 
 	return ret & NAND_STATUS_FAIL ? -EIO : 0;
+#else 
+	return 0;
+#endif
 }
 
 static int mtk_nfc_update_ecc_stats(struct mtd_info *mtd, u8 *buf, u32 sectors)

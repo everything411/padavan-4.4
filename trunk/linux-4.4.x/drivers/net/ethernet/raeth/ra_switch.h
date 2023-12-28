@@ -13,11 +13,13 @@
 #ifndef RA_SWITCH_H
 #define RA_SWITCH_H
 
+#if !defined (CONFIG_RAETH_ESW_CONTROL)
 #include  "./rtl8367c/include/rtk_switch.h"
 #include  "./rtl8367c/include/rtk_hal.h"
 #include  "./rtl8367c/include/port.h"
 #include  "./rtl8367c/include/vlan.h"
 #include  "./rtl8367c/include/rtl8367c_asicdrv_port.h"
+#endif
 
 extern struct net_device *dev_raether;
 #define ANACAL_INIT		0x01

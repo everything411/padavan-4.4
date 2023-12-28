@@ -29,12 +29,14 @@
 #include <net/netfilter/nf_conntrack_helper.h>
 #include <net/netfilter/nf_conntrack_zones.h>
 #include <net/netfilter/nf_conntrack_core.h>
+#include <net/netfilter/nf_conntrack_timeout.h>
 #include <linux/netfilter/xt_dscp.h>
 #include <net/genetlink.h>
 #include <linux/spinlock.h>
 #include <linux/if_bridge.h>
 #include <linux/hashtable.h>
 #include <net/pkt_sched.h>
+#include <linux/prefetch.h>
 #include <linux/version.h>
 
 #include "sfe_backport.h"
@@ -231,6 +233,14 @@ int fast_classifier_recv(struct sk_buff *skb)
 	prefetch(skb->data + 32);
 	barrier();
 
+	/*
+	 * Send packet to network stack without processing if VLAN TAG is present
+	 * Untagging VLAN packet is impossible here as it is private for the context
+	 * This will avoid untagging after v4-v6 recv functions execute, saving MIPS
+	 */
+	if (skb_vlan_tag_present(skb))
+		return 0;
+
 	dev = skb->dev;
 
 	/*
@@ -245,12 +255,12 @@ int fast_classifier_recv(struct sk_buff *skb)
 		}
 		dev = master_dev;
 	}
-	
+
 #ifdef CONFIG_NET_CLS_ACT
 	/*
 	 * If ingress Qdisc configured, and packet not processed by ingress Qdisc yet
 	 * We cannot accelerate this packet.
-	 */
+	*/
 	if (dev->ingress_queue && !(skb->tc_verd & TC_NCLS)) {
 		goto rx_exit;
 	}
@@ -484,16 +494,16 @@ static int fast_classifier_update_protocol(struct sfe_connection_create *p_sic, 
 		 * state can not be SYN_SENT, SYN_RECV because connection is assured
 		 * Not managed states: FIN_WAIT, CLOSE_WAIT, LAST_ACK, TIME_WAIT, CLOSE.
 		 */
-		spin_lock(&ct->lock);
+		spin_lock_bh(&ct->lock);
 		if (ct->proto.tcp.state != TCP_CONNTRACK_ESTABLISHED) {
-			spin_unlock(&ct->lock);
+			spin_unlock_bh(&ct->lock);
 			fast_classifier_incr_exceptions(FAST_CL_EXCEPTION_TCP_NOT_ESTABLISHED);
 			DEBUG_TRACE("connection in termination state: %#x, s: %pI4:%u, d: %pI4:%u\n",
 				    ct->proto.tcp.state, &p_sic->src_ip, ntohs(p_sic->src_port),
 				    &p_sic->dest_ip, ntohs(p_sic->dest_port));
 			return 0;
 		}
-		spin_unlock(&ct->lock);
+		spin_unlock_bh(&ct->lock);
 		break;
 
 	case IPPROTO_UDP:
@@ -575,14 +585,18 @@ static void fast_classifier_send_genl_msg(int msg, struct fast_classifier_tuple 
 #endif
 	switch (msg) {
 	case FAST_CLASSIFIER_C_OFFLOADED:
-		atomic_inc(&offloaded_msgs);
-		if (rc != 0)
+		if (rc == 0) {
+			atomic_inc(&offloaded_msgs);
+		} else {
 			atomic_inc(&offloaded_fail_msgs);
+		}
 		break;
 	case FAST_CLASSIFIER_C_DONE:
-		atomic_inc(&done_msgs);
-		if (rc != 0)
+		if (rc == 0) {
+			atomic_inc(&done_msgs);
+		} else {
 			atomic_inc(&done_fail_msgs);
+		}
 		break;
 	default:
 		DEBUG_ERROR("fast-classifer: Unknown message type sent!\n");
@@ -848,6 +862,25 @@ static unsigned int fast_classifier_post_routing(struct sk_buff *skb, bool is_v4
 		return NF_ACCEPT;
 	}
 
+#ifdef CONFIG_XFRM
+	/*
+	 * Packet to xfrm for encapsulation, we can't process it
+	 */
+	if (unlikely(skb_dst(skb)->xfrm)) {
+		DEBUG_TRACE("packet to xfrm, ignoring\n");
+		return NF_ACCEPT;
+	}
+#endif
+
+	/*
+	 * Don't process locally generated packets.
+	 */
+	if (skb->sk) {
+		fast_classifier_incr_exceptions(FAST_CL_EXCEPTION_LOCAL_OUT);
+		DEBUG_TRACE("skip local out packet\n");
+		return NF_ACCEPT;
+	}
+
 	/*
 	 * Don't process packets that are not being forwarded.
 	 */
@@ -899,7 +932,7 @@ static unsigned int fast_classifier_post_routing(struct sk_buff *skb, bool is_v4
 		DEBUG_TRACE("connection has helper\n");
 		return NF_ACCEPT;
 	}
-	
+
 	/*
 	 * Check if the acceleration of a flow could be rejected quickly.
 	 */
@@ -1015,11 +1048,11 @@ static unsigned int fast_classifier_post_routing(struct sk_buff *skb, bool is_v4
 		 */
 		if (ntohs(sic.dest_port) == 4500 || ntohs(sic.dest_port) == 500) {
 			if (likely(is_v4))
-				DEBUG_TRACE("quarkysg:: IPsec bypass: %pI4:%d(%pI4:%d) to %pI4:%d(%pI4:%d)\n",
+				DEBUG_TRACE("IPsec bypass: %pI4:%d(%pI4:%d) to %pI4:%d(%pI4:%d)\n",
 					&sic.src_ip.ip, ntohs(sic.src_port), &sic.src_ip_xlate.ip, ntohs(sic.src_port_xlate),
 					&sic.dest_ip.ip, ntohs(sic.dest_port), &sic.dest_ip_xlate.ip, ntohs(sic.dest_port_xlate));
 			else
-				DEBUG_TRACE("quarkysg:: IPsec bypass: %pI6:%d to %pI6:%d\n",
+				DEBUG_TRACE("IPsec bypass: %pI6:%d to %pI6:%d\n",
 					&sic.src_ip.ip6, ntohs(sic.src_port), &sic.dest_ip.ip6, ntohs(sic.dest_port));
 			return NF_ACCEPT;
 		}
@@ -1141,7 +1174,20 @@ static unsigned int fast_classifier_post_routing(struct sk_buff *skb, bool is_v4
 	}
 	dev_put(dev);
 
-	if (!fast_classifier_find_dev_and_mac_addr(skb, &sic.dest_ip_xlate, &dest_dev_tmp, sic.dest_mac_xlate, is_v4)) {
+	/*
+	 * This is a hack to work-around the issue where dest_ip & dest_ip_xlate differs, i.e. reverse NAT, which
+	 * interferes with UDP port forwarding in DD-WRT.  Not sure why TCP is OK, since both UDP and TCP lookup
+	 * destination interface are the same.  For now, we fall back to the original behaviour of the destination
+	 * interface lookup if we detect that we're handling post-routed reverse NAT traffic.
+	 *
+	 * TODO: to improve the way destination interface is looked up.
+	 */
+	if (likely(sfe_addr_equal(&sic.dest_ip_xlate, &sic.dest_ip, is_v4)))
+		tmp_skb = skb;
+	else
+		tmp_skb = NULL;
+
+	if (!fast_classifier_find_dev_and_mac_addr(tmp_skb, &sic.dest_ip_xlate, &dest_dev_tmp, sic.dest_mac_xlate, is_v4)) {
 		fast_classifier_incr_exceptions(FAST_CL_EXCEPTION_NO_DEST_XLATE_DEV);
 		goto done1;
 	}
@@ -1574,6 +1620,49 @@ static void fast_classifier_sync_rule(struct sfe_connection_sync *sis)
 		}
 		spin_unlock_bh(&ct->lock);
 		break;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 4, 0))
+	case IPPROTO_UDP:
+		/*
+		 * In Linux connection track, UDP flow has two timeout values:
+		 * /proc/sys/net/netfilter/nf_conntrack_udp_timeout:
+		 * 	this is for uni-direction UDP flow, normally its value is 60 seconds
+		 * /proc/sys/net/netfilter/nf_conntrack_udp_timeout_stream:
+		 * 	this is for bi-direction UDP flow, normally its value is 180 seconds
+		 *
+		 * Linux will update timer of UDP flow to stream timeout once it seen packets
+		 * in reply direction. But if flow is accelerated by NSS or SFE, Linux won't
+		 * see any packets. So we have to do the same thing in our stats sync message.
+		 */
+		if (!test_bit(IPS_ASSURED_BIT, &ct->status) && acct) {
+			u64 reply_pkts = atomic64_read(&SFE_ACCT_COUNTER(acct)[IP_CT_DIR_REPLY].packets);
+
+			if (reply_pkts != 0) {
+				unsigned int *timeouts;
+				struct nf_conntrack_l4proto *l4proto __maybe_unused;
+				set_bit(IPS_SEEN_REPLY_BIT, &ct->status);
+				set_bit(IPS_ASSURED_BIT, &ct->status);
+
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 19, 0))
+				l4proto = __nf_ct_l4proto_find((sis->is_v6 ? AF_INET6 : AF_INET), IPPROTO_UDP);
+				timeouts = nf_ct_timeout_lookup(&init_net, ct, l4proto);
+				spin_lock_bh(&ct->lock);
+				ct->timeout.expires = jiffies + timeouts[UDP_CT_REPLIED];
+				spin_unlock_bh(&ct->lock);
+#else
+				timeouts = nf_ct_timeout_lookup(ct);
+				if (!timeouts) {
+					timeouts = udp_get_timeouts(nf_ct_net(ct));
+					//timeouts = nf_udp_pernet(nf_ct_net(ct))->timeouts;
+				}
+
+				spin_lock_bh(&ct->lock);
+				ct->timeout = jiffies + timeouts[UDP_CT_REPLIED];
+				spin_unlock_bh(&ct->lock);
+#endif
+			}
+		}
+		break;
+#endif /*KERNEL_VERSION(3, 4, 0)*/
 	}
 
 	/*
@@ -1670,7 +1759,7 @@ static ssize_t fast_classifier_get_debug_info(struct device *dev,
 
 	spin_lock_bh(&sfe_connections_lock);
 	len += scnprintf(buf, PAGE_SIZE - len, "size=%d offload=%d offload_no_match=%d"
-			" offloaded=%d done=%d offl_dbg_msg_fail=%d done_dbg_msg_fail=%d\n",
+			" offloaded=%d done=%d offloaded_fail=%d done_fail=%d\n",
 			sfe_connections_size,
 			atomic_read(&offload_msgs),
 			atomic_read(&offload_no_match_msgs),
@@ -1767,9 +1856,12 @@ static int __init fast_classifier_init(void)
 {
 	struct fast_classifier *sc = &__sc;
 	int result = -1;
+#ifdef CONFIG_SFE_ECM
+	int (*fast_recv)(struct sk_buff *skb);
+#endif
 
-	printk(KERN_ALERT "fast-classifier (PBR safe v2.1.4a): starting up\n");
-	DEBUG_INFO("SFE CM init\n");
+	printk(KERN_ALERT "fast-classifier: starting up\n");
+	DEBUG_INFO("SFE FC init\n");
 
 	hash_init(fc_conn_ht);
 
@@ -1833,18 +1925,17 @@ static int __init fast_classifier_init(void)
 		goto exit3;
 	}
 
+#ifdef CONFIG_NF_CONNTRACK_EVENTS
 	/*
 	 * Register a notifier hook to get fast notifications of expired connections.
 	 */
-#ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
-	result = nf_conntrack_register_chain_notifier(&init_net, &fast_classifier_conntrack_notifier);
-#else
 	result = nf_conntrack_register_notifier(&init_net, &fast_classifier_conntrack_notifier);
 	if (result < 0) {
 		DEBUG_ERROR("can't register nf notifier hook: %d\n", result);
 		goto exit4;
 	}
 #endif
+
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 10, 0))
 	result = genl_register_family(&fast_classifier_gnl_family);
@@ -1888,7 +1979,16 @@ static int __init fast_classifier_init(void)
 	/*
 	 * Hook the receive path in the network stack.
 	 */
+#ifdef CONFIG_SFE_ECM
+	rcu_read_lock();
+	fast_recv = rcu_dereference(athrs_fast_nat_recv);
+	rcu_read_unlock();
+	if (!fast_recv) {
+		BUG_ON(athrs_fast_nat_recv);
+	}
+#else
 	BUG_ON(athrs_fast_nat_recv);
+#endif
 	RCU_INIT_POINTER(athrs_fast_nat_recv, fast_classifier_recv);
 
 	/*
@@ -1905,11 +2005,7 @@ exit6:
 
 exit5:
 #ifdef CONFIG_NF_CONNTRACK_EVENTS
-#ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
-	nf_conntrack_unregister_chain_notifier(&init_net, &fast_classifier_conntrack_notifier);
-#else
 	nf_conntrack_unregister_notifier(&init_net, &fast_classifier_conntrack_notifier);
-#endif
 
 exit4:
 #endif
@@ -1939,7 +2035,7 @@ static void __exit fast_classifier_exit(void)
 	struct fast_classifier *sc = &__sc;
 	int result = -1;
 
-	DEBUG_INFO("SFE CM exit\n");
+	DEBUG_INFO("SFE FC exit\n");
 	printk(KERN_ALERT "fast-classifier: shutting down\n");
 
 	/*
@@ -1977,11 +2073,7 @@ static void __exit fast_classifier_exit(void)
 	}
 
 #ifdef CONFIG_NF_CONNTRACK_EVENTS
-#ifdef CONFIG_NF_CONNTRACK_CHAIN_EVENTS
-	nf_conntrack_unregister_chain_notifier(&init_net, &fast_classifier_conntrack_notifier);
-#else
 	nf_conntrack_unregister_notifier(&init_net, &fast_classifier_conntrack_notifier);
-#endif
 #endif
 	nf_unregister_net_hooks(&init_net, fast_classifier_ops_post_routing, ARRAY_SIZE(fast_classifier_ops_post_routing));
 

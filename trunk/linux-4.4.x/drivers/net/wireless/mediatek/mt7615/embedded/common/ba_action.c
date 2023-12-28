@@ -33,6 +33,9 @@ static inline void ba_enqueue_head(struct reordering_list *list, struct reorderi
 	list->qlen++;
 	mpdu_blk->next = list->next;
 	list->next = mpdu_blk;
+
+	if (!list->tail)
+		list->tail = mpdu_blk;
 }
 
 static inline void ba_enqueue_tail(struct reordering_list *list, struct reordering_mpdu *mpdu_blk)
@@ -59,9 +62,8 @@ static inline struct reordering_mpdu *ba_dequeue_head(struct reordering_list *li
 		mpdu_blk = list->next;
 		list->next = mpdu_blk->next;
 
-		if (!list->next)
-			if (!list->next)
-				mpdu_blk->next = NULL;
+		if (mpdu_blk == list->tail)
+			list->tail = NULL;
 	}
 
 	return mpdu_blk;
@@ -88,7 +90,7 @@ void dump_ba_list(struct reordering_list *list)
 	struct reordering_mpdu *mpdu_blk = NULL;
 
 	if (list->next) {
-		MTWF_LOG(DBG_CAT_PROTO, CATPROTO_BA, DBG_LVL_TRACE, ("\n ba sn list:"));
+		MTWF_LOG(DBG_CAT_PROTO, CATPROTO_BA, DBG_LVL_OFF, ("\n ba sn list:"));
 		mpdu_blk = list->next;
 
 		while (mpdu_blk) {
@@ -97,7 +99,7 @@ void dump_ba_list(struct reordering_list *list)
 		}
 	}
 
-	MTWF_LOG(DBG_CAT_PROTO, CATPROTO_BA, DBG_LVL_TRACE, ("\n\n"));
+	MTWF_LOG(DBG_CAT_PROTO, CATPROTO_BA, DBG_LVL_OFF, ("\n\n"));
 }
 
 static VOID ba_free_ori_entry(RTMP_ADAPTER *pAd, ULONG Idx)
@@ -264,7 +266,7 @@ static VOID ba_rec_session_idle_timeout(
 			pAd = pBAEntry->pAdapter;
 			ba_refresh_reordering_mpdus(pAd, pBAEntry);
 			pBAEntry->REC_BA_Status = Recipient_Initialization;
-			MTWF_LOG(DBG_CAT_PROTO, CATPROTO_BA, DBG_LVL_TRACE, ("%ld: REC BA session Timeout\n", Now32));
+			MTWF_LOG(DBG_CAT_PROTO, CATPROTO_BA, DBG_LVL_OFF, ("%ld: REC BA session Timeout\n", Now32));
 		}
 	}
 }
@@ -316,6 +318,9 @@ static BOOLEAN ba_reordering_mpdu_insertsorted(struct reordering_list *list, str
 		}
 	}
 
+	if (*ppScan == NULL)
+		list->tail = mpdu;
+
 	mpdu->next = *ppScan;
 	*ppScan = mpdu;
 	list->qlen++;
@@ -354,76 +359,58 @@ VOID ba_resource_dump_all(RTMP_ADAPTER *pAd)
 		else
 			strncpy(tmpBuf, "STA", 10);
 
-		MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("%02X:%02X:%02X:%02X:%02X:%02X (Aid = %d) (%s) -\n",
+		MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("%02X:%02X:%02X:%02X:%02X:%02X (Aid = %d) (%s) -\n",
 				 PRINT_MAC(pEntry->Addr), pEntry->Aid, tmpBuf));
-		MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("[Originator]\n"));
+		MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("[Originator]\n"));
 
 		for (j = 0; j < NUM_OF_TID; j++) {
 			if (pEntry->BAOriWcidArray[j] != 0) {
 				pOriBAEntry = &pAd->BATable.BAOriEntry[pEntry->BAOriWcidArray[j]];
 
 				if (pOriBAEntry->ORI_BA_Status == Originator_Done)
-					MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("TID=%d, BAWinSize=%d, StartSeq=%d, CurTxSeq=%d\n",
+					MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("TID=%d, BAWinSize=%d, StartSeq=%d, CurTxSeq=%d\n",
 							 j, pOriBAEntry->BAWinSize, pOriBAEntry->Sequence,
 							 pAd->MacTab.tr_entry[pEntry->wcid].TxSeq[j]));
 			}
 		}
 
-		MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\n"));
-		MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("[Recipient]\n"));
+		MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\n"));
+		MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("[Recipient]\n"));
 
 		for (j = 0; j < NUM_OF_TID; j++) {
 			if (pEntry->BARecWcidArray[j] != 0) {
 				pRecBAEntry = &pAd->BATable.BARecEntry[pEntry->BARecWcidArray[j]];
 
 				if ((pRecBAEntry->REC_BA_Status == Recipient_Established) || (pRecBAEntry->REC_BA_Status == Recipient_Initialization))
-					MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_TRACE,
+					MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF,
 							 ("TID=%d, BAWinSize=%d, LastIndSeq=%d, ReorderingPkts=%d, FreeMpduBls=%d\n", j, pRecBAEntry->BAWinSize,
 							  pRecBAEntry->LastIndSeq, pRecBAEntry->list.qlen, pAd->mpdu_blk_pool.freelist.qlen));
 			}
 		}
 
-		MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("\n"));
-		MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("[RX ReorderBuffer]\n"));
+		MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("\n"));
+		MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("[RX ReorderBuffer]\n"));
 
 		for (j = 0; j < NUM_OF_TID; j++) {
 			if (pEntry->BARecWcidArray[j] != 0) {
 				pRecBAEntry = &pAd->BATable.BARecEntry[pEntry->BARecWcidArray[j]];
+
+				NdisAcquireSpinLock(&pRecBAEntry->RxReRingLock);
 				mpdu_blk = ba_reordering_mpdu_probe(&pRecBAEntry->list);
 
-				if (mpdu_blk) {
-					MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("mpdu:SN = %d, AMSDU = %d\n", mpdu_blk->Sequence,
+				while (mpdu_blk) {
+					MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("mpdu:SN = %d, AMSDU = %d\n", mpdu_blk->Sequence,
 							 mpdu_blk->bAMSDU));
 					msdu_blk = ba_reordering_mpdu_probe(&mpdu_blk->AmsduList);
 
-					if (msdu_blk) {
-						MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("msdu:SN = %d, AMSDU = %d\n", msdu_blk->Sequence,
+					while (msdu_blk && msdu_blk->bAMSDU) {
+						MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("msdu:SN = %d, AMSDU = %d\n", msdu_blk->Sequence,
 									 msdu_blk->bAMSDU));
-
-						while (msdu_blk->next) {
-							msdu_blk = msdu_blk->next;
-							MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("msdu:SN = %d, AMSDU = %d\n", msdu_blk->Sequence,
-									 msdu_blk->bAMSDU));
-						}
+						msdu_blk = msdu_blk->next;
 					}
-
-					while (mpdu_blk->next) {
-						mpdu_blk = mpdu_blk->next;
-						printk("mpdu:SN = %d, AMSDU = %d\n", mpdu_blk->Sequence, mpdu_blk->bAMSDU);
-						msdu_blk = ba_reordering_mpdu_probe(&mpdu_blk->AmsduList);
-
-						if (msdu_blk) {
-							MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("msdu:SN = %d, AMSDU = %d\n", msdu_blk->Sequence,
-								 msdu_blk->bAMSDU));
-
-							while (msdu_blk->next) {
-								msdu_blk = msdu_blk->next;
-								MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("msdu:SN = %d, AMSDU = %d\n", msdu_blk->Sequence,
-									 msdu_blk->bAMSDU));
-							}
-						}
-					}
+					mpdu_blk = mpdu_blk->next;
 				}
+				NdisReleaseSpinLock(&pRecBAEntry->RxReRingLock);
 			}
 		}
 	}
@@ -460,7 +447,7 @@ VOID ba_reordering_resource_dump_all(RTMP_ADAPTER *pAd)
 		}
 	}
 
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("total %d msdu packt in ba list\n", total_pkt_cnt));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("total %d msdu packt in ba list\n", total_pkt_cnt));
 	NdisReleaseSpinLock(&pAd->BATabLock);
 }
 
@@ -499,7 +486,7 @@ VOID ba_reodering_resource_dump(RTMP_ADAPTER *pAd, UCHAR wcid)
 		}
 	}
 
-	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_TRACE, ("total %d msdu packt in wcid (%d) ba list\n", total_pkt_cnt, wcid));
+	MTWF_LOG(DBG_CAT_ALL, DBG_SUBCAT_ALL, DBG_LVL_OFF, ("total %d msdu packt in wcid (%d) ba list\n", total_pkt_cnt, wcid));
 }
 
 /* free all resource for reordering mechanism */
@@ -943,7 +930,7 @@ static BA_REC_ENTRY *ba_alloc_rec_entry(RTMP_ADAPTER *pAd, USHORT *Idx)
 	NdisAcquireSpinLock(&pAd->BATabLock);
 
 	if (pAd->BATable.numAsRecipient >= (MAX_LEN_OF_BA_REC_TABLE - 1)) {
-		MTWF_LOG(DBG_CAT_PROTO, CATPROTO_BA, DBG_LVL_TRACE, ("BA Recipeint Session (%ld) > %d\n",
+		MTWF_LOG(DBG_CAT_PROTO, CATPROTO_BA, DBG_LVL_OFF, ("BA Recipeint Session (%ld) > %d\n",
 				 pAd->BATable.numAsRecipient, (MAX_LEN_OF_BA_REC_TABLE - 1)));
 		goto done;
 	}
@@ -1007,7 +994,8 @@ BOOLEAN ba_rec_session_add(
 		pBAEntry->TimeOutValue = pFrame->TimeOutValue;
 		pBAEntry->REC_BA_Status = Recipient_Initialization;
 		pBAEntry->check_amsdu_miss = TRUE;
-		MTWF_LOG(DBG_CAT_PROTO, CATPROTO_BA, DBG_LVL_TRACE, ("Start Seq = %08x\n",  pFrame->BaStartSeq.field.StartSeq));
+		pBAEntry->LastIndSeq = (pFrame->BaStartSeq.field.StartSeq - 1) & MAXSEQ;
+		MTWF_LOG(DBG_CAT_PROTO, CATPROTO_BA, DBG_LVL_OFF, ("Start Seq = %08x\n",  pFrame->BaStartSeq.field.StartSeq));
 		NdisReleaseSpinLock(&pAd->BATabLock);
 
 		if (pEntry->RXBAbitmap & (1 << TID))
@@ -1052,7 +1040,7 @@ static VOID ba_free_rec_entry(RTMP_ADAPTER *pAd, ULONG Idx)
 		if (pAd->BATable.numAsRecipient > 0)
 			pAd->BATable.numAsRecipient -= 1;
 		else {
-			MTWF_LOG(DBG_CAT_PROTO, CATPROTO_BA, DBG_LVL_TRACE, ("Idx = %lu, REC_BA_Status = %d, Wcid(pBAEntry) = %d,\
+			MTWF_LOG(DBG_CAT_PROTO, CATPROTO_BA, DBG_LVL_OFF, ("Idx = %lu, REC_BA_Status = %d, Wcid(pBAEntry) = %d,\
 				Wcid(pEntry) = %d, Tid = %d\n", Idx, pBAEntry->REC_BA_Status, pBAEntry->Wcid, pEntry->wcid, pBAEntry->TID));
 		}
 
@@ -1274,7 +1262,7 @@ VOID peer_addba_req_action(RTMP_ADAPTER *pAd, MLME_QUEUE_ELEM *Elem)
 
 	if (PeerAddBAReqActionSanity(pAd, Elem->Msg, Elem->MsgLen, pAddr)) {
 		if ((pAd->CommonCfg.bBADecline == FALSE) && IS_HT_STA(pMacEntry)) {
-			MTWF_LOG(DBG_CAT_PROTO, CATPROTO_BA, DBG_LVL_TRACE, ("Rcv Wcid(%d) AddBAReq\n", Elem->Wcid));
+			MTWF_LOG(DBG_CAT_PROTO, CATPROTO_BA, DBG_LVL_OFF, ("Rcv Wcid(%d) AddBAReq\n", Elem->Wcid));
 
 			if (ba_rec_session_add(pAd, &pAd->MacTab.Content[Elem->Wcid], pAddreqFrame)) {
 #ifdef PEER_DELBA_TX_ADAPT
@@ -1679,8 +1667,10 @@ static VOID ba_enqueue_reordering_packet(
 		}
 
 		NdisGetSystemUpTime(&Now32);
+		NdisAcquireSpinLock(&pBAEntry->RxReRingLock);
 		pBAEntry->LastIndSeqAtTimer = Now32;
 		pBAEntry->CurMpdu = NULL;
+		NdisReleaseSpinLock(&pBAEntry->RxReRingLock);
 	}
 }
 
@@ -1913,7 +1903,7 @@ static VOID peer_delba_tx_adapt_enable(
 #ifdef MT_MAC
 
 	if (IS_HIF_TYPE(pAd, HIF_MT)) {
-		MTWF_LOG(DBG_CAT_PROTO, CATPROTO_BA, DBG_LVL_TRACE, ("%s(): No need this for HIF_MT!\n", __func__));
+		MTWF_LOG(DBG_CAT_PROTO, CATPROTO_BA, DBG_LVL_OFF, ("%s(): No need this for HIF_MT!\n", __func__));
 		return;
 	}
 
@@ -1968,7 +1958,7 @@ static VOID peer_delba_tx_adapt_enable(
 #ifdef MT_MAC
 
 	if (IS_HIF_TYPE(pAd, HIF_MT)) {
-		MTWF_LOG(DBG_CAT_PROTO, CATPROTO_BA, DBG_LVL_TRACE, ("%s(): No need this for HIF_MT!\n", __func__));
+		MTWF_LOG(DBG_CAT_PROTO, CATPROTO_BA, DBG_LVL_OFF, ("%s(): No need this for HIF_MT!\n", __func__));
 		return;
 	}
 

@@ -46,6 +46,7 @@ function initial(){
 			showhide_div("row_ldpc", 1);
 			showhide_div("row_80211kv", 1);
 			showhide_div("row_80211r", 1);
+			showhide_div("row_whnat", 1);
 		} 
 	}
 
@@ -341,6 +342,15 @@ function done_validating(action){
                                                 <select name="wl_HT_80211R" class="input">
                                                     <option value="0" <% nvram_match_x("", "wl_HT_80211R", "0", "selected"); %>><#btn_Disable#> (*)</option>
                                                     <option value="1" <% nvram_match_x("", "wl_HT_80211R", "1", "selected"); %>><#btn_Enable#></option>
+                                                </select>
+                                            </td>
+                                        </tr>
+					<tr id="row_whnat">
+                                            <th>WHNAT</th>
+                                            <td>
+                                                <select name="wl_HT_WHNAT" class="input">
+                                                    <option value="0" <% nvram_match_x("", "wl_HT_WHNAT", "0", "selected"); %>><#btn_Disable#> (*)</option>
+                                                    <option value="1" <% nvram_match_x("", "wl_HT_WHNAT", "1", "selected"); %>><#btn_Enable#></option>
                                                 </select>
                                             </td>
                                         </tr>

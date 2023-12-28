@@ -11,8 +11,9 @@
  * GNU General Public License for more details.
  */
 #include "raether.h"
-
-#include "mtk_hnat/nf_hnat_mtk.h"
+#if defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
+//#include "mtk_hnat/nf_hnat_mtk.h"
+#endif
 
 int fe_pdma_wait_dma_idle(void)
 {
@@ -255,11 +256,20 @@ int fe_fill_tx_desc(struct net_device *dev,
 			}
 		}
 	}
+#elif defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
+	//if (is_to_ppe(skb)) {
+	//	//clr_from_extge(skb);
+	//	txd_info4_tmp.FPORT = 4;
+	//}
+	if (FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_PPE &&
+	    IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb) &&
+	    likely(IS_SPACE_AVAILABLE_HEAD(skb))) {
+		/* PPE */
+		FOE_MAGIC_TAG_HEAD(skb) = 0;
+		txd_info4_tmp.FPORT = 4;
+	}
 #endif
-	
-	if (HNAT_SKB_CB2(skb)->magic == 0x78681415)
-	{txd_info4_tmp.FPORT = 4;}
-	
+
 	txd_info2_tmp.LS0_bit = 1;
 	txd_info2_tmp.DDONE_bit = 0;
 
@@ -520,6 +530,18 @@ int fe_fill_tx_desc_tso(struct net_device *dev,
 			}
 		}
 	}
+#elif defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
+	//if (is_to_ppe(skb)) {
+	//	//clr_from_extge(skb);
+	//	tx_ring->txd_info4.FPORT = 4;
+	//}
+	if (FOE_MAGIC_TAG_HEAD(skb) == FOE_MAGIC_PPE &&
+	    IS_MAGIC_TAG_PROTECT_VALID_HEAD(skb) &&
+	    likely(IS_SPACE_AVAILABLE_HEAD(skb))) {
+		/* PPE */
+		FOE_MAGIC_TAG_HEAD(skb) = 0;
+		tx_ring->txd_info4.FPORT = 4;
+	}
 #endif
 	ei_local->skb_txd_num = 1;
 
@@ -673,6 +695,14 @@ int ei_pdma_start_xmit(struct sk_buff *skb, struct net_device *dev, int gmac_no)
 				dev_kfree_skb_any(skb);
 				return 0;
 			}
+	}
+#elif defined(CONFIG_NET_MEDIATEK_HNAT) || defined(CONFIG_NET_MEDIATEK_HNAT_MODULE)
+	if (FOE_MAGIC_TAG_HEAD(skb) != FOE_MAGIC_PPE) {
+		if (ra_sw_nat_hook_tx &&
+		    ra_sw_nat_hook_tx(skb, gmac_no) != 1) {
+			dev_kfree_skb_any(skb);
+			return 0;
+		}
 	}
 #endif
 

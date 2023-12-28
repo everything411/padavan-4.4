@@ -13,6 +13,7 @@
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
 #include <linux/if_bridge.h>
+#include <linux/version.h>
 #include "hnat.h"
 
 /* *
@@ -61,7 +62,7 @@ static void get_mac_from_mdb_entry(struct br_mdb_entry *entry,
 }
 
 /*set_hnat_mtbl - set ppe multicast register*/
-static int set_hnat_mtbl(struct ppe_mcast_group *group, int index)
+static int set_hnat_mtbl(struct ppe_mcast_group *group, u32 ppe_id, int index)
 {
 	struct ppe_mcast_h mcast_h;
 	struct ppe_mcast_l mcast_l;
@@ -69,6 +70,9 @@ static int set_hnat_mtbl(struct ppe_mcast_group *group, int index)
 	u32 mac_hi = group->mac_hi;
 	u8 mc_port = group->mc_port;
 	void __iomem *reg;
+
+	if (ppe_id >= CFG_PPE_NUM)
+		return -EINVAL;
 
 	mcast_h.u.value = 0;
 	mcast_l.addr = 0;
@@ -83,9 +87,9 @@ static int set_hnat_mtbl(struct ppe_mcast_group *group, int index)
 	trace_printk("%s:index=%d,group info=0x%x,addr=0x%x\n",
 		     __func__, index, mcast_h.u.value, mcast_l.addr);
 	if (index < 0x10) {
-		reg = hnat_priv->ppe_base + PPE_MCAST_H_0 + ((index) * 8);
+		reg = hnat_priv->ppe_base[ppe_id] + PPE_MCAST_H_0 + ((index) * 8);
 		writel(mcast_h.u.value, reg);
-		reg = hnat_priv->ppe_base + PPE_MCAST_L_0 + ((index) * 8);
+		reg = hnat_priv->ppe_base[ppe_id] + PPE_MCAST_L_0 + ((index) * 8);
 		writel(mcast_l.addr, reg);
 	} else {
 		index = index - 0x10;
@@ -110,9 +114,9 @@ static int set_hnat_mtbl(struct ppe_mcast_group *group, int index)
 static int hnat_mcast_table_update(int type, struct br_mdb_entry *entry)
 {
 	struct net_device *dev;
-	u32 mac_hi;
-	u16 mac_lo;
-	int index;
+	u32 mac_hi = 0;
+	u16 mac_lo = 0;
+	int i, index;
 	struct ppe_mcast_group *group;
 
 	rcu_read_lock();
@@ -164,7 +168,9 @@ static int hnat_mcast_table_update(int type, struct br_mdb_entry *entry)
 		if (!group->oif && !group->eif)
 			/*nobody in this group,clear the entry*/
 			memset(group, 0, sizeof(struct ppe_mcast_group));
-		set_hnat_mtbl(group, index);
+
+		for (i = 0; i < CFG_PPE_NUM; i++)
+			set_hnat_mtbl(group, i, index);
 	}
 
 	return 0;
@@ -251,76 +257,93 @@ out:
 	return NULL;
 }
 
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
 static void hnat_mcast_check_timestamp(unsigned long data)
+#else
+static void hnat_mcast_check_timestamp(struct timer_list *t)
+#endif
 {
 	struct foe_entry *entry;
-	int hash_index;
+	int i, hash_index;
 	u16 e_ts, foe_ts;
 
-	for (hash_index = 0; hash_index < hnat_priv->foe_etry_num; hash_index++) {
-		entry = hnat_priv->foe_table_cpu + hash_index;
-		if (entry->bfib1.sta == 1) {
-			e_ts = (entry->ipv4_hnapt.m_timestamp) & 0xffff;
-			foe_ts = foe_timestamp(hnat_priv);
-			if ((foe_ts - e_ts) > 0x3000)
-				foe_ts = (~(foe_ts)) & 0xffff;
-			if (abs(foe_ts - e_ts) > 20)
-				entry_delete(hash_index);
+	for (i = 0; i < CFG_PPE_NUM; i++) {
+		for (hash_index = 0; hash_index < hnat_priv->foe_etry_num; hash_index++) {
+			entry = hnat_priv->foe_table_cpu[i] + hash_index;
+			if (entry->bfib1.sta == 1) {
+				e_ts = (entry->ipv4_hnapt.m_timestamp) & 0xffff;
+				foe_ts = foe_timestamp(hnat_priv);
+				if ((foe_ts - e_ts) > 0x3000)
+					foe_ts = (~(foe_ts)) & 0xffff;
+				if (abs(foe_ts - e_ts) > 20)
+					entry_delete(i, hash_index);
+			}
 		}
 	}
 	mod_timer(&hnat_priv->hnat_mcast_check_timer, jiffies + 10 * HZ);
 }
 
-int hnat_mcast_enable(void)
+int hnat_mcast_enable(u32 ppe_id)
 {
 	struct ppe_mcast_table *pmcast;
 
+	if (ppe_id >= CFG_PPE_NUM)
+		return -EINVAL;
+
 	pmcast = kzalloc(sizeof(*pmcast), GFP_KERNEL);
 	if (!pmcast)
-		goto err;
+		return -1;
 
-	if (hnat_priv->data->version == MTK_HNAT_V1)
+#if !(defined(CONFIG_MEDIATEK_NETSYS_V2) || defined(CONFIG_MEDIATEK_NETSYS_V3))
+	if (hnat_priv->data->version == MTK_HNAT_V1_1)
 		pmcast->max_entry = 0x10;
 	else
+#endif
 		pmcast->max_entry = MAX_MCAST_ENTRY;
 
 	INIT_WORK(&pmcast->work, hnat_mcast_nlmsg_handler);
 	pmcast->queue = create_singlethread_workqueue("ppe_mcast");
 	if (!pmcast->queue)
-		goto err;
+		goto err1;
 
 	pmcast->msock = hnat_mcast_netlink_open(&init_net);
 	if (!pmcast->msock)
-		goto err;
+		goto err2;
 
 	hnat_priv->pmcast = pmcast;
 
+#if !(defined(CONFIG_MEDIATEK_NETSYS_V2) || defined(CONFIG_MEDIATEK_NETSYS_V3))
 	/* mt7629 should checkout mcast entry life time manualy */
-	if (hnat_priv->data->version == MTK_HNAT_V3) {
+	if (hnat_priv->data->version == MTK_HNAT_V1_3) {
+#if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0))
 		init_timer(&hnat_priv->hnat_mcast_check_timer);
 		hnat_priv->hnat_mcast_check_timer.function =
 			hnat_mcast_check_timestamp;
+#else
+		timer_setup(&hnat_priv->hnat_mcast_check_timer,
+			    hnat_mcast_check_timestamp, 0);
+#endif
 		hnat_priv->hnat_mcast_check_timer.expires = jiffies;
 		add_timer(&hnat_priv->hnat_mcast_check_timer);
 	}
+#endif
 
 	/* Enable multicast table lookup */
-	cr_set_field(hnat_priv->ppe_base + PPE_GLO_CFG, MCAST_TB_EN, 1);
+	cr_set_field(hnat_priv->ppe_base[ppe_id] + PPE_GLO_CFG, MCAST_TB_EN, 1);
 	/* multicast port0 map to PDMA */
-	cr_set_field(hnat_priv->ppe_base + PPE_MCAST_PPSE, MC_P0_PPSE, 0);
+	cr_set_field(hnat_priv->ppe_base[ppe_id] + PPE_MCAST_PPSE, MC_P0_PPSE, 0);
 	/* multicast port1 map to GMAC1 */
-	cr_set_field(hnat_priv->ppe_base + PPE_MCAST_PPSE, MC_P1_PPSE, 1);
+	cr_set_field(hnat_priv->ppe_base[ppe_id] + PPE_MCAST_PPSE, MC_P1_PPSE, 1);
 	/* multicast port2 map to GMAC2 */
-	cr_set_field(hnat_priv->ppe_base + PPE_MCAST_PPSE, MC_P2_PPSE, 2);
+	cr_set_field(hnat_priv->ppe_base[ppe_id] + PPE_MCAST_PPSE, MC_P2_PPSE, 2);
 	/* multicast port3 map to QDMA */
-	cr_set_field(hnat_priv->ppe_base + PPE_MCAST_PPSE, MC_P3_PPSE, 5);
+	cr_set_field(hnat_priv->ppe_base[ppe_id] + PPE_MCAST_PPSE, MC_P3_PPSE, 5);
 
 	return 0;
-err:
+err2:
 	if (pmcast->queue)
 		destroy_workqueue(pmcast->queue);
-	if (pmcast->msock)
-		sock_release(pmcast->msock);
+err1:
 	kfree(pmcast);
 
 	return -1;
@@ -329,19 +352,19 @@ err:
 int hnat_mcast_disable(void)
 {
 	struct ppe_mcast_table *pmcast = hnat_priv->pmcast;
-	struct socket *sock = pmcast->msock;
-	struct workqueue_struct *queue = pmcast->queue;
-	struct work_struct *work = &pmcast->work;
 
-	if (hnat_priv->data->version == MTK_HNAT_V3)
+	if (!pmcast)
+		return -EINVAL;
+
+#if !(defined(CONFIG_MEDIATEK_NETSYS_V2) || defined(CONFIG_MEDIATEK_NETSYS_V3))
+	if (hnat_priv->data->version == MTK_HNAT_V1_3)
 		del_timer_sync(&hnat_priv->hnat_mcast_check_timer);
+#endif
 
-	if (pmcast) {
-		flush_work(work);
-		destroy_workqueue(queue);
-		sock_release(sock);
-		kfree(pmcast);
-	}
+	flush_work(&pmcast->work);
+	destroy_workqueue(pmcast->queue);
+	sock_release(pmcast->msock);
+	kfree(pmcast);
 
 	return 0;
 }

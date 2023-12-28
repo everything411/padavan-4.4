@@ -48,9 +48,9 @@ static unsigned int quirks;
 module_param(quirks, uint, S_IRUGO);
 MODULE_PARM_DESC(quirks, "Bit flags for quirks to be enabled as default");
 
-int usb3_disable = 0;
-module_param(usb3_disable, int, S_IRUGO | S_IWUSR);
-MODULE_PARM_DESC(usb3_disable, "Disable USB3 interface");
+int u3intf = 0;
+module_param(u3intf, int, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(u3intf, "USB3/2.4GHz interference");
 
 /*
  * xhci_handshake - spin reading hc until handshake completes or fails
@@ -461,25 +461,24 @@ static void compliance_mode_recovery(unsigned long arg)
 			xhci_dbg_trace(xhci, trace_xhci_dbg_quirks,
 					"Attempting compliance mode recovery");
 			hcd = xhci->shared_hcd;
-#ifdef CONFIG_SOC_MT7621
+
+/*#ifdef CONFIG_SOC_MT7621
 			temp |= PORT_WR;
 			writel(temp, xhci->usb3_ports[i]);
 #endif
+*/
 			if (hcd->state == HC_STATE_SUSPENDED)
 				usb_hcd_resume_root_hub(hcd);
 
 			usb_hcd_poll_rh_status(hcd);
 		}
 	}
-#ifdef CONFIG_SOC_MT7621
-		mod_timer(&xhci->comp_mode_recovery_timer,
-		jiffies + msecs_to_jiffies(COMP_MODE_RCVRY_MSECS));
-#else
+
+//#ifndef CONFIG_SOC_MT7621
 	if (xhci->port_status_u0 != ((1 << xhci->num_usb3_ports)-1))
+//#endif
 		mod_timer(&xhci->comp_mode_recovery_timer,
 			jiffies + msecs_to_jiffies(COMP_MODE_RCVRY_MSECS));
-#endif
-
 }
 
 /*
