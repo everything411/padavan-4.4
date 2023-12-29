@@ -83,7 +83,13 @@
 #include "rt_config.h"
 #include "ft_cmm.h"
 
+
+/* #define FT_KDP_DEBUG */ /* debug messages for FT */
+/* #define FT_KDP_FUNC_TEST */ /* do not check security of bssid for debug*/
 #define TYPE_FUNC
+//#define FT_KDP_DEBUG
+//#define FT_KDP_FUNC_TEST
+/*#define FT_KDP_EMPTY */ /* empty codes to debug */
 
 #define IAPP_DAEMON_CMD_PARSE(__pInfo, __InfoLen, __PeerIP, __pData, __DataLen)	\
 	do {\
@@ -195,7 +201,7 @@ VOID TYPE_FUNC FT_KDP_Release(
 {
 #ifndef FT_KDP_EMPTY
 #ifdef FT_KDP_FUNC_R0KH_IP_RECORD
-	FT_KDP_R0KH_INFO *pInfoHead, *pInfo;
+	FT_KDP_R0KH_INFO *pInfoHead = NULL, *pInfo = NULL;
 #endif /* FT_KDP_FUNC_R0KH_IP_RECORD */
 
 	if (pAd->ApCfg.FtTab.FlgIsFtKdpInit == 0)
@@ -208,7 +214,8 @@ VOID TYPE_FUNC FT_KDP_Release(
 #endif /* FT_KDP_FUNC_SOCK_COMM */
 #ifdef FT_KDP_FUNC_R0KH_IP_RECORD
 	/* free all R0KH information */
-	pInfoHead = FT_KDP_CB->R0KH_InfoHead;
+	if (FT_KDP_CB != NULL)
+		pInfoHead = FT_KDP_CB->R0KH_InfoHead;
 
 	while (pInfoHead != NULL) {
 		pInfo = pInfoHead;

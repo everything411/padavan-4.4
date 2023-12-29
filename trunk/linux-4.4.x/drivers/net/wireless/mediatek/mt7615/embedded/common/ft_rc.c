@@ -339,3 +339,4 @@ UINT32 BA_ResourceAllocate(
 #endif /* DOT11R_FT_SUPPORT */
 
 /* End of ap_ftrc.c */
+
