@@ -165,6 +165,11 @@ static long mtk_esw_ioctl(struct file *file, unsigned int req, unsigned long arg
 		ioctl_result = change_port_link_mode_uapi(uint_param, uint_value);
 		break;
 
+	case MTK_ESW_IOCTL_EEE_LPI:
+		copy_from_user(&uint_value, (int __user *)arg, sizeof(int));
+		change_eee_lpi_mode(uint_value);
+		break;
+
 	default:
 		ioctl_result = -ENOIOCTLCMD;
 	}

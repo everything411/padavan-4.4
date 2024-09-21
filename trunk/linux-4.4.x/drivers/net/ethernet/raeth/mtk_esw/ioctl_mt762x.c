@@ -69,6 +69,7 @@ static bwan_member_t g_bwan_member[SWAPI_WAN_BRIDGE_NUM][ESW_EPHY_ID_MAX+1];
 
 static u32 g_vlan_pvid_wan_untagged              = 2;
 
+
 ////////////////////////////////////////////////////////////////////////////////////
 u32 esw_reg_get(u32 addr)
 {
@@ -1700,6 +1701,113 @@ static void change_jumbo_frames_accept(u32 jumbo_frames_enabled)
 		printk("%s - jumbo frames accept: %d bytes\n", MTK_ESW_DEVNAME, (jumbo_frames_enabled) ? 9000 : 1536);
 		
 		esw_jumbo_control(jumbo_frames_enabled);
+	}
+}
+
+static void mt7530_gsw_auto_downshift_phy(u32 port_id, int is_ads_enabled)
+{
+	u32 regValue = 0x3a14;	// 0x3a14 is default
+
+#if defined (MT7530_P5_MODE_GPHY_P4)
+	if (port_id == 4)
+		is_ads_enabled = 1;	// EEE on P4 always off
+#elif defined (MT7530_P5_MODE_GPHY_P0)
+	if (port_id == 0)
+		is_ads_enabled = 1;	// EEE on P0 always off
+#endif
+	/* HW auto downshift control */
+	mii_mgr_write(port_id, 31, 0x1);
+	mii_mgr_read(port_id, 20, &regValue);
+	if (is_ads_enabled)
+		regValue |=  (1<<4);
+	else
+		regValue &= ~(1<<4);
+	mii_mgr_write(port_id, 20, regValue);
+	mii_mgr_write(port_id, 31, 0x0);
+}
+static u8 mt7530_eee_enabled = 0;
+void mt7530_gsw_eee_enable(int is_eee_enabled)
+{
+	u32 i;
+
+	mt7530_eee_enabled = (is_eee_enabled) ? 1 : 0;
+
+	for (i = 0; i <= 4; i++) {
+#if defined (MT7530_P5_MODE_GPHY_P4)
+		if (i == 4 && is_eee_enabled) continue;
+#elif defined (MT7530_P5_MODE_GPHY_P0)
+		if (i == 0 && is_eee_enabled) continue;
+#endif
+		/* EEE 1000/100 LPI */
+		mii_mgr_write_cl45(i, 0x07, 0x003c, (is_eee_enabled) ? 0x0006 : 0x0000);
+		
+		/* HW auto downshift control */
+		mt7530_gsw_auto_downshift_phy(i, (is_eee_enabled) ? 0 : 1);
+	}
+
+	/* EEE 10Base-Te (global) */
+//	mii_mgr_write_cl45(0, 0x1f, 0x027b, (is_eee_enabled) ? 0x1147 : 0x1177);
+}
+
+static void power_down_all_phy(void)
+{
+	u32 i;
+	int power_changed = 0;
+
+	/* block PHY changes */
+	atomic_set(&g_switch_allow_irq, 0);
+
+	/* down all PHY ports */
+	for (i = 0; i <= ESW_EPHY_ID_MAX; i++)
+		power_changed |= esw_port_phy_power(i, 0, 0);
+
+	if (power_changed)
+		msleep(500);
+}
+
+static void esw_eee_control(u32 is_eee_enabled)
+{
+	u32 i, port_phy_power[ESW_EPHY_ID_MAX+1];
+
+	/* store PHY power state before down */
+	memcpy(port_phy_power, g_port_phy_power, sizeof(g_port_phy_power));
+
+	/* disable PHY ports link */
+	power_down_all_phy();
+
+	/* set EEE on switch ports */
+	mt7530_gsw_eee_enable(is_eee_enabled);
+
+	/* set EEE on external EPHY */
+#if defined (CONFIG_P4_MAC_TO_PHY_MODE)
+	ext_gphy_eee_enable(CONFIG_MAC_TO_GIGAPHY_MODE_ADDR2, is_eee_enabled);
+#endif
+#if defined (CONFIG_P5_MAC_TO_PHY_MODE)
+	ext_gphy_eee_enable(CONFIG_MAC_TO_GIGAPHY_MODE_ADDR, is_eee_enabled);
+#elif defined (CONFIG_GE2_RGMII_AN)
+	ext_gphy_eee_enable(CONFIG_MAC_TO_GIGAPHY_MODE_ADDR2, is_eee_enabled);
+#endif
+
+	/* allow PHY changes */
+	atomic_set(&g_switch_allow_irq, 1);
+
+	/* restore PHY ports link */
+	for (i = 0; i <= ESW_EPHY_ID_MAX; i++) {
+		if (port_phy_power[i])
+			esw_port_phy_power(i, 1, 1);
+	}
+}
+static u32 g_eee_lpi_enabled = 0;
+static void change_eee_lpi_mode(u32 eee_lpi_enabled)
+{
+	if (eee_lpi_enabled)
+		eee_lpi_enabled = 1;
+
+	if (g_eee_lpi_enabled != eee_lpi_enabled) {
+		g_eee_lpi_enabled = eee_lpi_enabled;
+		printk("%s - 802.3az EEE: %s\n", MTK_ESW_DEVNAME, (eee_lpi_enabled) ? "on" : "off");
+		
+		esw_eee_control(eee_lpi_enabled);
 	}
 }
 
