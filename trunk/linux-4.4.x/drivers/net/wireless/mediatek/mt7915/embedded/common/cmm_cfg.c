@@ -8545,8 +8545,7 @@ INT set_hnat_register(RTMP_ADAPTER *pAd, RTMP_STRING *arg)
 						ppe_dev_unregister_hook(wdev->if_dev);
 				}
 #endif /*CONFIG_FAST_NAT_SUPPORT*/
-		} else
-			MTWF_LOG(DBG_CAT_CFG, DBG_SUBCAT_ALL, DBG_LVL_INFO, ("\n"));
+		}
 	}
 
 	return TRUE;

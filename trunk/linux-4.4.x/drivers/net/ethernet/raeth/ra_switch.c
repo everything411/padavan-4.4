@@ -3959,11 +3959,6 @@ static void esw_link_status_changed(int port_no, void *dev_id)
 	unsigned int reg_val;
 
 	mii_mgr_read(31, (0x3008 + (port_no * 0x100)), &reg_val);
-	if (reg_val & 0x1)
-		pr_info("ESW: Link Status Changed - Port%d Link UP\n", port_no);
-	else
-		pr_info("ESW: Link Status Changed - Port%d Link Down\n",
-			port_no);
 
 	if (esw_link_status_hook)
 		esw_link_status_hook(port_no, reg_val & 0x1);
@@ -4140,10 +4135,8 @@ irqreturn_t esw_interrupt(int irq, void *resv)
 		if (port_status[i] != ((phy_val & 0x4) >> 2)) {
 			if (port_status[i] == 0) {
 				port_status[i] = 1;
-				pr_info("ESW: Link Status Changed - Port%d Link Up\n", i);
 			} else {
 				port_status[i] = 0;
-				pr_info("ESW: Link Status Changed - Port%d Link Down\n", i);
 			}
 			if (ei_local->architecture & LEOPARD_EPHY) {
 				if (i == 0)

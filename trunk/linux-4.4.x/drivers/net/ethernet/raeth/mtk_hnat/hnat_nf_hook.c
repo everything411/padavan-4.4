@@ -1596,10 +1596,12 @@ int mtk_sw_nat_hook_tx(struct sk_buff *skb, int gmac_no)
 			ret = skb_to_hnat_info(entry, skb, gmac_no);
 			if (ret < -_EWANDEV) {
 				skb_hnat_alg(skb) = 1;
+/*
 				if (ret < -_EPKTTYPECHECK << 16)
 					printk(KERN_WARNING
 						"hook_tx(out_dev=%s, ret=0x%x)\n",
 						skb->dev->name, ret);
+*/
 			}
 			return NF_ACCEPT;
 		//cast HIT_BIND_KEEPALIVE_MC_NEW_HDR:

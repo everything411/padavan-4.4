@@ -2528,6 +2528,7 @@ void fe_set_sw_lro_my_ip(char *lan_ip_addr)
 int ei_open(struct net_device *dev)
 {
 	int err;
+	const char *raeth_ver = NULL;
 	struct END_DEVICE *ei_local;
 
 	ei_local = netdev_priv(dev);
@@ -2543,14 +2544,16 @@ int ei_open(struct net_device *dev)
 		return -1;
 	}
 
-	pr_info("Raeth %s (", RAETH_VERSION);
 	if (ei_local->features & FE_INT_NAPI)
-		pr_info("NAPI\n");
+		raeth_ver = "NAPI";
 	else if (ei_local->features & FE_INT_TASKLET)
-		pr_info("Tasklet");
+		raeth_ver = "Tasklet";
 	else if (ei_local->features & FE_INT_WORKQ)
-		pr_info("Workqueue");
-	pr_info(")\n");
+		raeth_ver = "Workqueue";
+	else
+		raeth_ver = "NULL";
+
+	pr_info("Raeth %s (%s)", RAETH_VERSION, raeth_ver);
 
 	ei_reset_statistics(ei_local);
 
