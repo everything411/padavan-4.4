@@ -740,10 +740,10 @@ typedef struct os_cookie	* POS_COOKIE;
 #define PRINT_MAC(addr)	\
 	addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]
 
-#ifdef DBG
 extern ULONG		RTDebugLevel;
 extern ULONG		RTDebugFunc;
 
+#ifdef DBG
 #if defined(MT7603_FPGA) || defined(MT7628_FPGA)
 #define DBGPRINT_RAW(Level, Fmt)    \
 do{                                   \
@@ -837,6 +837,7 @@ do{                                   \
 
 #define MTWF_PRINT	printk
 
+#ifdef DBG
 #define MTWF_LOG(Category, SubCategory, Level, Fmt)	\
 do{	\
 				if ((Level) <= RTDebugLevel)	\
@@ -844,7 +845,9 @@ do{	\
 				else {	\
 				}	\
 }while(0)
-
+#else
+#define MTWF_LOG(Category, SubCategory, Level, Fmt)
+#endif
 
 #undef  ASSERT
 #ifdef DBG
