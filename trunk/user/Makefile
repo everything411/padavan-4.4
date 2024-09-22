@@ -93,7 +93,7 @@ endif
 dir_y =
 dir_n =
 dir_  =
-dir_y                      += ralinkiappd
+dir_n                      += ralinkiappd
 dir_y						+= busybox
 dir_y						+= iptables
 ifneq ($(CONFIG_WITHOUT_KERNEL),y)
@@ -113,7 +113,7 @@ dir_y						+= www
 dir_y						+= rc
 dir_$(CONFIG_FIRMWARE_INCLUDE_ANTFS)		+= antfs
 dir_y						+= infosvr
-dir_y						+= inadyn
+dir_n						+= inadyn
 dir_y						+= miniupnpd
 dir_y						+= dnsmasq
 dir_y						+= igmpproxy
