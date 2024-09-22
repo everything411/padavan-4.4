@@ -49,18 +49,12 @@ function change_common_wl(o, s, v) {
         if (o.value == "psk" || o.value == "wpa") {
             opts = document.form.wl_auth_mode.options;
 
-            if (opts[opts.selectedIndex].text == "WPA-Personal") {
+            if (opts[opts.selectedIndex].text == "WPA3-Personal")
                 document.form.wl_wpa_mode.value = "1";
-                automode_hint();
-            }
             else if (opts[opts.selectedIndex].text == "WPA2-Personal")
                 document.form.wl_wpa_mode.value = "2";
-            else if (opts[opts.selectedIndex].text == "WPA-Auto-Personal")
+            else if (opts[opts.selectedIndex].text == "WPA2or3-Personal")
                 document.form.wl_wpa_mode.value = "0";
-            else if (opts[opts.selectedIndex].text == "WPA-Enterprise")
-                document.form.wl_wpa_mode.value = "3";
-            else if (opts[opts.selectedIndex].text == "WPA-Auto-Enterprise")
-                document.form.wl_wpa_mode.value = "4";
 
             if (o.value == "psk") {
                 document.form.wl_wpa_psk.focus();
@@ -71,8 +65,8 @@ function change_common_wl(o, s, v) {
             document.form.wl_key1.focus();
             document.form.wl_key1.select();
         }
-        nmode_limitation();
-        automode_hint();
+        // nmode_limitation();
+        // automode_hint();
     }
     else if (v == "wl_crypto") {
         wl_auth_mode_change(0);
