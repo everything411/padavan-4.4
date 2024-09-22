@@ -1029,14 +1029,14 @@ gen_ralink_config(int is_soc_ap, int is_aband, int disable_autoscan)
 	else if (!strcmp(p_str, "psk"))
 	{
 		if (i_val == 1) {
-			i_auth = 2; // WPA PSK
-			c_val_mbss[0] = "WPAPSK";
+			i_auth = 2; // WPA3 PSK hack
+			c_val_mbss[0] = "WPA3PSK";
 		} else if (i_val == 2) {
 			i_auth = 3; // WPA2 PSK
 			c_val_mbss[0] = "WPA2PSK";
 		} else {
-			i_auth = 4; // WPA PSK or WPA2 PSK
-			c_val_mbss[0] = "WPAPSKWPA2PSK";
+			i_auth = 4; // WPA2 PSK or WPA3 PSK
+			c_val_mbss[0] = "WPA2PSKWPA3PSK";
 		}
 	}
 	else if (!strcmp(p_str, "wpa"))
@@ -1293,7 +1293,9 @@ gen_ralink_config(int is_soc_ap, int is_aband, int disable_autoscan)
 	i_val = nvram_wlan_get_int(is_aband, "HT_AMSDU");
 	fprintf(fp, "HT_AMSDU=%d;%d\n", i_val, i_val);
 	
-	//MFPC
+	//MFPC MFPR
+	if(i_auth == 2)
+		fprintf(fp, "PMFMFPR=1;1\n");
 	fprintf(fp, "PMFMFPC=1;1\n");
 	//HT_BAWinSize
 	i_val = nvram_wlan_get_int(is_aband, "HT_BAWinSize");
